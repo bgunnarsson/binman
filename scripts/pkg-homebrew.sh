@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OWNER="bgunnarsson"
-REPO="binreq"   # GitHub repo name
+REPO="binman"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SRC_REPO_DIR="${SCRIPT_DIR}/.."
