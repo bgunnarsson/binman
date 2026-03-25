@@ -22,7 +22,7 @@ Supports `.http`, `.bru` (Bruno), and `.postman_collection.json` (Postman) files
 ### macOS — Homebrew
 
 ```sh
-brew tap bgunnarsson/tap
+brew tap bgunnarsson/binman
 brew install binman
 ```
 
