@@ -363,10 +363,11 @@ func addPostmanItems(parent *tview.TreeNode, collectionPath string, items []post
 					Foreground(tcell.ColorWhite))
 			parent.AddChild(node)
 		} else {
-			// It's a folder
-			label = dirLabel(iconCollapsed(), item.Name)
+			// It's a folder — start expanded so requests are visible immediately
+			label = dirLabel(iconExpanded(), item.Name)
 			node := tview.NewTreeNode(label).
 				SetReference(PostmanFolderNode{Name: item.Name}).
+				SetExpanded(true).
 				SetTextStyle(tcell.StyleDefault.Background(tcell.NewHexColor(0x0d0f1e))).
 				SetSelectedTextStyle(tcell.StyleDefault.
 					Background(tcell.NewHexColor(0x2d1f6e)).
