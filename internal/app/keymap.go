@@ -22,7 +22,7 @@ func (a *App) setupKeymap() {
 			a.CycleMethod()
 			return nil
 
-		case event.Key() == tcell.KeyEscape:
+case event.Key() == tcell.KeyEscape:
 			// Return focus to sidebar
 			a.TV.SetFocus(a.View.Sidebar)
 			return nil

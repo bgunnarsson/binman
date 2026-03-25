@@ -6,14 +6,12 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
-
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 
-	"github.com/bgunnarsson/binreq/internal/httpclient"
-	"github.com/bgunnarsson/binreq/internal/httpfile"
-	"github.com/bgunnarsson/binreq/internal/ui/widgets"
+	"github.com/bgunnarsson/binman/internal/httpclient"
+	"github.com/bgunnarsson/binman/internal/httpfile"
+	"github.com/bgunnarsson/binman/internal/ui/widgets"
 )
 
 var uiLog *log.Logger
@@ -41,14 +39,12 @@ type View struct {
 	Root *tview.Flex
 
 	// URL bar
-	Method         *tview.DropDown
-	URLInput       *tview.InputField
+	Method      *tview.DropDown
+	EnvDropDown *tview.DropDown
+	URLInput    *tview.InputField
 	RespStatusCode *tview.TextView
 	RespStatusBar  *tview.TextView
 	SendBtn        *tview.Button
-
-	// Info bar
-	DurationLabel *tview.TextView
 
 	// Focus helpers
 	ReqFocusWidget  tview.Primitive // primary focusable widget in request panel
@@ -94,17 +90,29 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	appLabel.SetBackgroundColor(ColorBg)
 	appLabel.SetText("[#a78bfa]BINMAN[-] [#4a4f72]0.0.1[-]")
 
-	v.DurationLabel = tview.NewTextView()
-	v.DurationLabel.SetDynamicColors(true)
-	v.DurationLabel.SetBackgroundColor(ColorBg)
-	v.DurationLabel.SetTextAlign(tview.AlignRight)
+	envNoStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x1e293b)).Foreground(tcell.NewHexColor(0x64748b))
+
+	v.EnvDropDown = tview.NewDropDown()
+	v.EnvDropDown.SetBackgroundColor(ColorBg)
+	v.EnvDropDown.SetTextOptions(" ", " ", " ", "", "")
+	v.EnvDropDown.SetListStyles(
+		tcell.StyleDefault.Background(ColorBgPanel).Foreground(ColorText),
+		tcell.StyleDefault.Background(tcell.NewHexColor(0x0d6b5e)).Foreground(tcell.ColorWhite),
+	)
+	v.EnvDropDown.SetOptions([]string{"no env"}, func(_ string, _ int) {
+		v.EnvDropDown.SetFieldStyle(envNoStyle)
+		v.EnvDropDown.SetFocusedStyle(envNoStyle)
+	})
+	v.EnvDropDown.SetFieldWidth(16)
+	v.EnvDropDown.SetCurrentOption(0)
 
 	infoBar := tview.NewFlex().SetDirection(tview.FlexColumn)
 	infoBar.SetBackgroundColor(ColorBg)
 	infoBar.AddItem(tview.NewBox().SetBackgroundColor(ColorBg), 2, 0, false)
 	infoBar.AddItem(appLabel, 0, 1, false)
-	infoBar.AddItem(v.DurationLabel, 0, 1, false)
+	infoBar.AddItem(v.EnvDropDown, 18, 0, false)
 	infoBar.AddItem(tview.NewBox().SetBackgroundColor(ColorBg), 2, 0, false)
+
 
 	infoBarWrapper := tview.NewFlex().SetDirection(tview.FlexRow)
 	infoBarWrapper.SetBackgroundColor(ColorBg)
@@ -124,7 +132,7 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 
 	v.Method = tview.NewDropDown()
 	v.Method.SetBackgroundColor(ColorBgPanel)
-	v.Method.SetTextOptions(" ", " ", "", "", "")
+	v.Method.SetTextOptions(" ", " ", " ", "", "")
 	v.Method.SetListStyles(
 		tcell.StyleDefault.Background(ColorBgPanel).Foreground(ColorText),
 		tcell.StyleDefault.Background(tcell.NewHexColor(0x5b21b6)).Foreground(tcell.ColorWhite),
@@ -515,7 +523,6 @@ func (v *View) UpdateResponseView(resp *httpclient.Response, formattedBody strin
 		return
 	}
 	v.updateRespStatus(resp.StatusCode)
-	v.DurationLabel.SetText(fmt.Sprintf("[#a78bfa]%s[-]", formatDuration(resp.Duration)))
 
 	// Body tab
 	uiDbg("SetText body start (%d bytes)", len(formattedBody))
@@ -567,15 +574,32 @@ func statusBarText(file string, sending bool) string {
 	return left + shortcuts + state
 }
 
-// formatDuration formats a duration as a human-readable response time.
-func formatDuration(d time.Duration) string {
-	if d < time.Millisecond {
-		return fmt.Sprintf("%dμs", d.Microseconds())
+// SetEnvOptions populates the env dropdown. Pass nil/empty to show "no env".
+// Returns the selected index (always 0 when labels are present).
+func (v *View) SetEnvOptions(labels []string) {
+	noStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x1e293b)).Foreground(tcell.NewHexColor(0x64748b))
+	activeStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x0d6b5e)).Foreground(tcell.NewHexColor(0x5eead4))
+
+	if len(labels) == 0 {
+		v.EnvDropDown.SetOptions([]string{"no env"}, func(_ string, _ int) {
+			v.EnvDropDown.SetFieldStyle(noStyle)
+			v.EnvDropDown.SetFocusedStyle(noStyle)
+		})
+		v.EnvDropDown.SetCurrentOption(0)
+		return
 	}
-	if d < time.Second {
-		return fmt.Sprintf("%dms", d.Milliseconds())
-	}
-	return fmt.Sprintf("%.2fs", d.Seconds())
+
+	v.EnvDropDown.SetOptions(labels, func(_ string, _ int) {
+		v.EnvDropDown.SetFieldStyle(activeStyle)
+		v.EnvDropDown.SetFocusedStyle(activeStyle)
+	})
+	v.EnvDropDown.SetCurrentOption(0)
+}
+
+// EnvSelectedIndex returns the currently selected env index from the dropdown.
+func (v *View) EnvSelectedIndex() int {
+	idx, _ := v.EnvDropDown.GetCurrentOption()
+	return idx
 }
 
 // IsInReqPanel reports whether p is a focusable widget inside the request panel.

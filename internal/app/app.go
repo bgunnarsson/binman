@@ -8,8 +8,8 @@ import (
 
 	"github.com/rivo/tview"
 
-	"github.com/bgunnarsson/binreq/internal/fsview"
-	"github.com/bgunnarsson/binreq/internal/ui"
+	"github.com/bgunnarsson/binman/internal/fsview"
+	"github.com/bgunnarsson/binman/internal/ui"
 )
 
 // App is the top-level application object.

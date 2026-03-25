@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/bgunnarsson/binreq/internal/httpfile"
+	"github.com/bgunnarsson/binman/internal/httpfile"
 )
 
 // Response holds the result of an HTTP request.
