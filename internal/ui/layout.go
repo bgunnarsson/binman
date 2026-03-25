@@ -563,15 +563,11 @@ func statusBarText(file string, sending bool) string {
 		return fmt.Sprintf(" [#a78bfa]%s[-] [#8b90a8]%s[-]", k, label)
 	}
 	shortcuts := key("^c", "Quit") + key("^j", "Send") + key("^t", "Method") + key("^[", "Sidebar") + key("Tab", "Focus")
-	left := ""
-	if file != "" {
-		left = fmt.Sprintf(" [#a78bfa]▸[-] [#525870]%s[-]", file)
-	}
 	state := ""
 	if sending {
 		state = "  [#a78bfa]Sending...[-]"
 	}
-	return left + shortcuts + state
+	return shortcuts + state
 }
 
 // SetEnvOptions populates the env dropdown. Pass nil/empty to show "no env".
