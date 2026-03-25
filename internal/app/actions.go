@@ -11,6 +11,7 @@ import (
 	"github.com/bgunnarsson/binman/internal/envfile"
 	"github.com/bgunnarsson/binman/internal/httpclient"
 	"github.com/bgunnarsson/binman/internal/httpfile"
+	"github.com/bgunnarsson/binman/internal/openapi"
 	"github.com/bgunnarsson/binman/internal/postmanfile"
 )
 
@@ -70,12 +71,35 @@ func (a *App) LoadPostmanRequest(collectionPath string, itemPath []int) {
 	a.loadRequest(req, filepath.Dir(collectionPath))
 }
 
+// LoadOpenAPIOperation loads a specific operation from an OpenAPI spec file.
+func (a *App) LoadOpenAPIOperation(specPath, path, method string) {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to read spec: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	spec, err := openapi.Parse(data, filepath.Base(specPath))
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to parse spec: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	req, err := openapi.OperationRequest(spec, path, method)
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to extract operation: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	a.loadRequest(req, filepath.Dir(specPath))
+}
+
 // loadRequest updates the view with a parsed request and discovers env files in dir.
 func (a *App) loadRequest(req *httpfile.Request, dir string) {
 	a.State.CurrentRequest = req
 	a.View.UpdateRequestView(req)
 
-	envFiles := envfile.Find(dir)
+	envFiles := envfile.Find(dir, a.State.Root)
 	dbg("loadRequest: dir=%s envFiles=%d", dir, len(envFiles))
 	for i, ef := range envFiles {
 		dbg("  env[%d]: label=%s path=%s", i, ef.Label, ef.Path)
