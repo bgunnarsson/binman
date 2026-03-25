@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bgunnarsson/binman/internal/postmanfile"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -18,6 +19,9 @@ const (
 	NodeDir NodeKind = iota
 	NodeHTTPFile
 	NodeOtherFile
+	NodeBruFile
+	NodePostmanCollection
+	NodePostmanRequest
 )
 
 type FSNode struct {
@@ -25,12 +29,26 @@ type FSNode struct {
 	Path string
 }
 
+// PostmanNode is the tview reference for a virtual Postman request node.
+type PostmanNode struct {
+	CollectionPath string
+	ItemPath       []int
+	Name           string
+	Method         string
+}
+
+// PostmanFolderNode is the tview reference for a virtual Postman folder node.
+type PostmanFolderNode struct {
+	Name string
+}
+
 type Filter struct {
 	ShowNonHTTP bool
 }
 
 type Handlers struct {
-	OpenHTTPFile func(path string)
+	OpenHTTPFile       func(path string)
+	OpenPostmanRequest func(collectionPath string, itemPath []int)
 }
 
 func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
@@ -56,6 +74,26 @@ func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
 		if n == nil {
 			return
 		}
+
+		// Virtual Postman request node
+		if pn, ok := n.GetReference().(PostmanNode); ok {
+			if h.OpenPostmanRequest != nil {
+				h.OpenPostmanRequest(pn.CollectionPath, pn.ItemPath)
+			}
+			return
+		}
+
+		// Virtual Postman folder node
+		if fn, ok := n.GetReference().(PostmanFolderNode); ok {
+			n.SetExpanded(!n.IsExpanded())
+			if n.IsExpanded() {
+				n.SetText(dirLabel(iconExpanded(), fn.Name))
+			} else {
+				n.SetText(dirLabel(iconCollapsed(), fn.Name))
+			}
+			return
+		}
+
 		ref, ok := n.GetReference().(FSNode)
 		if !ok {
 			return
@@ -74,9 +112,21 @@ func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
 				n.SetText(dirLabel(iconCollapsed(), name))
 			}
 
-		case NodeHTTPFile:
+		case NodeHTTPFile, NodeBruFile:
 			if h.OpenHTTPFile != nil {
 				h.OpenHTTPFile(ref.Path)
+			}
+
+		case NodePostmanCollection:
+			if len(n.GetChildren()) == 0 {
+				populatePostmanCollection(n, ref.Path)
+			}
+			n.SetExpanded(!n.IsExpanded())
+			name := filepath.Base(ref.Path)
+			if n.IsExpanded() {
+				n.SetText(postmanCollectionLabel(iconExpanded(), name))
+			} else {
+				n.SetText(postmanCollectionLabel(iconCollapsed(), name))
 			}
 		}
 	}
@@ -130,6 +180,16 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 			continue
 		}
 
+		if strings.EqualFold(filepath.Ext(name), ".bru") {
+			items = append(items, item{name, path, NodeBruFile})
+			continue
+		}
+
+		if strings.HasSuffix(strings.ToLower(name), ".postman_collection.json") {
+			items = append(items, item{name, path, NodePostmanCollection})
+			continue
+		}
+
 		if f.ShowNonHTTP {
 			items = append(items, item{name, path, NodeOtherFile})
 		}
@@ -151,6 +211,10 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 			label = dirLabel(iconCollapsed(), it.name)
 		case NodeHTTPFile:
 			label = httpFileLabel(it.path, it.name)
+		case NodeBruFile:
+			label = bruFileLabel(it.path, it.name)
+		case NodePostmanCollection:
+			label = postmanCollectionLabel(iconCollapsed(), it.name)
 		default:
 			label = fmt.Sprintf("[#4a4f72]%s %s[-]", iconFile(), it.name)
 		}
@@ -225,6 +289,92 @@ func peekMethod(path string) string {
 		break
 	}
 	return ""
+}
+
+// bruFileLabel reads the HTTP method from the .bru file and returns a label.
+func bruFileLabel(path, name string) string {
+	method := peekBruMethod(path)
+	if method == "" {
+		return fmt.Sprintf("  [#b0acd0]%s[-]", name)
+	}
+	return httpFileLabelWithMethod(method, name)
+}
+
+// peekBruMethod reads the first HTTP method block keyword from a .bru file.
+func peekBruMethod(path string) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Match lines like "get {", "post {", etc.
+		word := strings.ToLower(strings.Fields(line)[0])
+		switch word {
+		case "get", "post", "put", "patch", "delete", "head", "options":
+			return strings.ToUpper(word)
+		}
+	}
+	return ""
+}
+
+// postmanCollectionLabel returns a label for a Postman collection node.
+func postmanCollectionLabel(icon, name string) string {
+	return fmt.Sprintf("[#f59e0b]%s[-] [#fcd34d]%s[-]", icon, name)
+}
+
+// populatePostmanCollection parses a .postman_collection.json and adds virtual child nodes.
+func populatePostmanCollection(parent *tview.TreeNode, collectionPath string) {
+	data, err := os.ReadFile(collectionPath)
+	if err != nil {
+		return
+	}
+	c, err := postmanfile.Parse(data)
+	if err != nil {
+		return
+	}
+	addPostmanItems(parent, collectionPath, c.Items, []int{})
+}
+
+func addPostmanItems(parent *tview.TreeNode, collectionPath string, items []postmanfile.Item, basePath []int) {
+	for i, item := range items {
+		itemPath := append(append([]int{}, basePath...), i)
+
+		var label string
+		if item.Request != nil {
+			// It's a request leaf
+			method := strings.ToUpper(item.Request.Method)
+			label = httpFileLabelWithMethod(method, item.Name)
+			node := tview.NewTreeNode(label).
+				SetReference(PostmanNode{
+					CollectionPath: collectionPath,
+					ItemPath:       itemPath,
+					Name:           item.Name,
+					Method:         method,
+				}).
+				SetTextStyle(tcell.StyleDefault.Background(tcell.NewHexColor(0x0d0f1e))).
+				SetSelectedTextStyle(tcell.StyleDefault.
+					Background(tcell.NewHexColor(0x2d1f6e)).
+					Foreground(tcell.ColorWhite))
+			parent.AddChild(node)
+		} else {
+			// It's a folder
+			label = dirLabel(iconCollapsed(), item.Name)
+			node := tview.NewTreeNode(label).
+				SetReference(PostmanFolderNode{Name: item.Name}).
+				SetTextStyle(tcell.StyleDefault.Background(tcell.NewHexColor(0x0d0f1e))).
+				SetSelectedTextStyle(tcell.StyleDefault.
+					Background(tcell.NewHexColor(0x2d1f6e)).
+					Foreground(tcell.ColorWhite))
+			addPostmanItems(node, collectionPath, item.Items, itemPath)
+			parent.AddChild(node)
+		}
+	}
 }
 
 // methodColor returns a hex color string for the given HTTP method.

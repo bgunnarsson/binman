@@ -56,8 +56,28 @@ func New(root string) (*App, error) {
 		a.TV.ForceDraw()
 	}
 
+	openPostmanRequest := func(collectionPath string, itemPath []int) {
+		defer func() {
+			if r := recover(); r != nil {
+				if view != nil {
+					view.RespBodyTv.SetText(fmt.Sprintf("[red]PANIC: %v\n%s[-]", r, debug.Stack()))
+					view.SetRespTab(0)
+					a.TV.ForceDraw()
+				}
+			}
+		}()
+
+		if view == nil {
+			return
+		}
+
+		a.LoadPostmanRequest(collectionPath, itemPath)
+		a.TV.ForceDraw()
+	}
+
 	tree := fsview.NewTree(root, fsview.Filter{ShowNonHTTP: false}, fsview.Handlers{
-		OpenHTTPFile: openHTTPFile,
+		OpenHTTPFile:       openHTTPFile,
+		OpenPostmanRequest: openPostmanRequest,
 	})
 
 	view = ui.NewView(a.TV, tree)
