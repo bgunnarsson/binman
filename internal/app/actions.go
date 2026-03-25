@@ -45,6 +45,7 @@ func (a *App) LoadFile(path string) {
 		a.View.SetRespTab(0)
 		return
 	}
+	a.State.CollectionVars = nil
 	a.loadRequest(req, filepath.Dir(path))
 }
 
@@ -68,6 +69,7 @@ func (a *App) LoadPostmanRequest(collectionPath string, itemPath []int) {
 		a.View.SetRespTab(0)
 		return
 	}
+	a.State.CollectionVars = c.Vars()
 	a.loadRequest(req, filepath.Dir(collectionPath))
 }
 
@@ -91,6 +93,7 @@ func (a *App) LoadOpenAPIOperation(specPath, path, method string) {
 		a.View.SetRespTab(0)
 		return
 	}
+	a.State.CollectionVars = nil
 	a.loadRequest(req, filepath.Dir(specPath))
 }
 
@@ -134,11 +137,23 @@ func (a *App) SendRequest() {
 		Headers: map[string]string{},
 	}
 
-	if a.State.CurrentRequest != nil {
-		for k, v := range a.State.CurrentRequest.Headers {
+	// Headers and auth come from their live KVTables so user edits are always picked up.
+	for k, v := range a.View.GetHeaders() {
+		req.Headers[k] = envfile.Resolve(v, vars)
+	}
+	// Auth tab entries are merged in as headers (auth wins on conflict).
+	for k, v := range a.View.GetAuth() {
+		if k != "" {
 			req.Headers[k] = envfile.Resolve(v, vars)
 		}
-		req.Body = envfile.Resolve(a.State.CurrentRequest.Body, vars)
+	}
+	// Body comes from the active body type widget.
+	req.Body = envfile.Resolve(a.View.GetBody(), vars)
+	// Auto-set Content-Type from body type unless the user already set it.
+	if ct := a.View.GetBodyContentType(); ct != "" {
+		if _, exists := req.Headers["Content-Type"]; !exists {
+			req.Headers["Content-Type"] = ct
+		}
 	}
 
 	a.State.Sending = true
@@ -167,19 +182,36 @@ func (a *App) SendRequest() {
 	}()
 }
 
-// resolveEnvVars parses the currently selected env file and returns its variables.
+// resolveEnvVars returns the merged variable map for the current request.
+// Collection variables (Postman) form the base; the selected .env file wins on conflict.
 func (a *App) resolveEnvVars() map[string]string {
+	// Start with collection-level vars as the base (may be nil).
+	var merged map[string]string
+	if len(a.State.CollectionVars) > 0 {
+		merged = make(map[string]string, len(a.State.CollectionVars))
+		for k, v := range a.State.CollectionVars {
+			merged[k] = v
+		}
+	}
+
+	// Layer the selected .env file on top — it overrides collection vars.
 	idx := a.View.EnvSelectedIndex()
 	dbg("resolveEnvVars: EnvIndex=%d EnvFiles=%d", idx, len(a.State.EnvFiles))
-	if idx < 0 || idx >= len(a.State.EnvFiles) {
-		return nil
+	if idx >= 0 && idx < len(a.State.EnvFiles) {
+		envVars, err := envfile.Parse(a.State.EnvFiles[idx].Path)
+		dbg("resolveEnvVars: parsed vars=%d err=%v", len(envVars), err)
+		if err == nil {
+			if merged == nil {
+				merged = envVars
+			} else {
+				for k, v := range envVars {
+					merged[k] = v
+				}
+			}
+		}
 	}
-	vars, err := envfile.Parse(a.State.EnvFiles[idx].Path)
-	dbg("resolveEnvVars: parsed vars=%d err=%v", len(vars), err)
-	if err != nil {
-		return nil
-	}
-	return vars
+
+	return merged
 }
 
 

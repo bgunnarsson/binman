@@ -13,5 +13,6 @@ type State struct {
 	CurrentRequest *httpfile.Request
 	LastResponse   *httpclient.Response
 	Sending        bool
-	EnvFiles       []envfile.EnvFile // env files found by walking up from the current file's directory
+	EnvFiles       []envfile.EnvFile  // env files found by walking up from the current file's directory
+	CollectionVars map[string]string  // variables defined in the active Postman collection (if any)
 }

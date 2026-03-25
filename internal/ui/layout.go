@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/url"
@@ -54,12 +55,22 @@ type View struct {
 	Sidebar *tview.TreeView
 
 	// Request panel
-	ReqTabBar       *tview.TextView
-	ReqTabUnderline *tview.TextView
-	ReqPages        *tview.Pages
-	ReqHeadersTv    *tview.TextView // "no headers" / headers display
-	ReqBodyTv       *tview.TextView
-	ReqParamsTable  *widgets.KVTable
+	ReqTabBar           *tview.TextView
+	ReqTabUnderline     *tview.TextView
+	ReqPages            *tview.Pages
+	ReqHeadersTable     *widgets.KVTable
+	ReqBodyTypeDropDown *tview.DropDown
+	ReqBodyPages        *tview.Pages
+	ReqBodyArea         *tview.TextArea
+	ReqFormTable        *widgets.KVTable
+	ReqBodyType         string
+	ReqAuthTypeDropDown *tview.DropDown
+	ReqAuthPages        *tview.Pages
+	ReqAuthTable        *widgets.KVTable
+	ReqAuthType         string
+	ReqScriptsArea      *tview.TextArea
+	ReqOptionsTable     *widgets.KVTable
+	ReqParamsTable      *widgets.KVTable
 
 	// Response panel
 	RespTabBar       *tview.TextView
@@ -203,16 +214,101 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	v.ReqTabUnderline.SetDynamicColors(true)
 	v.ReqTabUnderline.SetBackgroundColor(ColorBg)
 
-	v.ReqHeadersTv = tview.NewTextView()
-	v.ReqHeadersTv.SetDynamicColors(true)
-	v.ReqHeadersTv.SetBackgroundColor(ColorBg)
-	v.ReqHeadersTv.SetTextAlign(tview.AlignCenter)
-	v.ReqHeadersTv.SetText("\n\n\n[#4a4f72]No headers[-]")
+	v.ReqHeadersTable = widgets.NewKVTable(app)
 
-	v.ReqBodyTv = tview.NewTextView()
-	v.ReqBodyTv.SetDynamicColors(true)
-	v.ReqBodyTv.SetBackgroundColor(ColorBg)
-	v.ReqBodyTv.SetWrap(true)
+	v.ReqBodyArea = tview.NewTextArea()
+	v.ReqBodyArea.SetBackgroundColor(ColorBg)
+	v.ReqBodyArea.SetTextStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorText))
+	v.ReqBodyArea.SetBorder(false)
+
+	v.ReqFormTable = widgets.NewKVTable(app)
+
+	bodyNonePlaceholder := tview.NewTextView()
+	bodyNonePlaceholder.SetDynamicColors(true)
+	bodyNonePlaceholder.SetBackgroundColor(ColorBg)
+	bodyNonePlaceholder.SetTextAlign(tview.AlignCenter)
+	bodyNonePlaceholder.SetText("\n\n\n[#4a4f72]No body[-]")
+
+	v.ReqBodyPages = tview.NewPages()
+	v.ReqBodyPages.AddPage("none", bodyNonePlaceholder, true, true)
+	v.ReqBodyPages.AddPage("raw", v.ReqBodyArea, true, false)
+	v.ReqBodyPages.AddPage("form", v.ReqFormTable.Widget(), true, false)
+
+	v.ReqBodyType = "No Body"
+	v.ReqBodyTypeDropDown = tview.NewDropDown()
+	v.ReqBodyTypeDropDown.SetBackgroundColor(ColorBg)
+	v.ReqBodyTypeDropDown.SetTextOptions(" ", " ", " ", "", "")
+	v.ReqBodyTypeDropDown.SetListStyles(
+		tcell.StyleDefault.Background(ColorBgPanel).Foreground(ColorText),
+		tcell.StyleDefault.Background(tcell.NewHexColor(0x5b21b6)).Foreground(tcell.ColorWhite),
+	)
+	v.ReqBodyTypeDropDown.SetOptions(bodyTypeOptions, func(text string, _ int) {
+		v.ReqBodyTypeDropDown.SetFieldStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorTextDim))
+		v.switchBodyType(text)
+	})
+	v.ReqBodyTypeDropDown.SetFieldStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorTextDim))
+	v.ReqBodyTypeDropDown.SetCurrentOption(0) // "No Body"
+
+	bodyTypeBar := tview.NewFlex().SetDirection(tview.FlexColumn)
+	bodyTypeBar.SetBackgroundColor(ColorBg)
+	bodyTypeBar.AddItem(tview.NewBox().SetBackgroundColor(ColorBg), 0, 1, false)
+	bodyTypeBar.AddItem(v.ReqBodyTypeDropDown, 22, 0, false)
+
+	bodyTab := tview.NewFlex().SetDirection(tview.FlexRow)
+	bodyTab.SetBackgroundColor(ColorBg)
+	bodyTab.AddItem(bodyTypeBar, 1, 0, false)
+	bodyTab.AddItem(v.ReqBodyPages, 0, 1, true)
+
+	v.ReqAuthTable = widgets.NewKVTable(app)
+	v.ReqAuthType = "Inherit"
+
+	authNonePlaceholder := tview.NewTextView()
+	authNonePlaceholder.SetDynamicColors(true)
+	authNonePlaceholder.SetBackgroundColor(ColorBg)
+	authNonePlaceholder.SetTextAlign(tview.AlignCenter)
+	authNonePlaceholder.SetText("\n\n\n[#4a4f72]No auth[-]")
+
+	v.ReqAuthPages = tview.NewPages()
+	v.ReqAuthPages.AddPage("none", authNonePlaceholder, true, false)
+	v.ReqAuthPages.AddPage("fields", v.ReqAuthTable.Widget(), true, false)
+	v.ReqAuthPages.SwitchToPage("none")
+
+	v.ReqAuthTypeDropDown = tview.NewDropDown()
+	v.ReqAuthTypeDropDown.SetBackgroundColor(ColorBg)
+	v.ReqAuthTypeDropDown.SetTextOptions(" ", " ", " ", "", "")
+	v.ReqAuthTypeDropDown.SetListStyles(
+		tcell.StyleDefault.Background(ColorBgPanel).Foreground(ColorText),
+		tcell.StyleDefault.Background(tcell.NewHexColor(0x5b21b6)).Foreground(tcell.ColorWhite),
+	)
+	v.ReqAuthTypeDropDown.SetOptions(authTypeOptions, func(text string, _ int) {
+		v.ReqAuthTypeDropDown.SetFieldStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorTextDim))
+		v.switchAuthType(text)
+	})
+	v.ReqAuthTypeDropDown.SetFieldStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorTextDim))
+	// Default to "Inherit"
+	for i, opt := range authTypeOptions {
+		if opt == "Inherit" {
+			v.ReqAuthTypeDropDown.SetCurrentOption(i)
+			break
+		}
+	}
+
+	authTypeBar := tview.NewFlex().SetDirection(tview.FlexColumn)
+	authTypeBar.SetBackgroundColor(ColorBg)
+	authTypeBar.AddItem(tview.NewBox().SetBackgroundColor(ColorBg), 0, 1, false)
+	authTypeBar.AddItem(v.ReqAuthTypeDropDown, 22, 0, false)
+
+	authTab := tview.NewFlex().SetDirection(tview.FlexRow)
+	authTab.SetBackgroundColor(ColorBg)
+	authTab.AddItem(authTypeBar, 1, 0, false)
+	authTab.AddItem(v.ReqAuthPages, 0, 1, true)
+
+	v.ReqScriptsArea = tview.NewTextArea()
+	v.ReqScriptsArea.SetBackgroundColor(ColorBg)
+	v.ReqScriptsArea.SetTextStyle(tcell.StyleDefault.Background(ColorBg).Foreground(ColorText))
+	v.ReqScriptsArea.SetBorder(false)
+
+	v.ReqOptionsTable = widgets.NewKVTable(app)
 
 	v.ReqParamsTable = widgets.NewKVTable(app)
 	v.ReqParamsTable.OnChange(func(pairs []widgets.KVPair) {
@@ -234,18 +330,20 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 		}
 	})
 
+	infoStub := tview.NewTextView()
+	infoStub.SetDynamicColors(true)
+	infoStub.SetBackgroundColor(ColorBg)
+	infoStub.SetTextAlign(tview.AlignCenter)
+	infoStub.SetText("\n\n\n[#4a4f72]Info[-]")
+
 	v.ReqPages = tview.NewPages()
 	v.ReqPages.AddPage("Params", v.ReqParamsTable.Widget(), true, true)
-	v.ReqPages.AddPage("Headers", v.ReqHeadersTv, true, false)
-	v.ReqPages.AddPage("Body", v.ReqBodyTv, true, false)
-	for _, name := range []string{"Auth", "Info", "Scripts", "Options"} {
-		stub := tview.NewTextView()
-		stub.SetDynamicColors(true)
-		stub.SetBackgroundColor(ColorBg)
-		stub.SetTextAlign(tview.AlignCenter)
-		stub.SetText(fmt.Sprintf("\n\n\n[#4a4f72]%s[-]", name))
-		v.ReqPages.AddPage(name, stub, true, false)
-	}
+	v.ReqPages.AddPage("Headers", v.ReqHeadersTable.Widget(), true, false)
+	v.ReqPages.AddPage("Body", bodyTab, true, false)
+	v.ReqPages.AddPage("Auth", authTab, true, false)
+	v.ReqPages.AddPage("Info", infoStub, true, false)
+	v.ReqPages.AddPage("Scripts", v.ReqScriptsArea, true, false)
+	v.ReqPages.AddPage("Options", v.ReqOptionsTable.Widget(), true, false)
 
 	reqTabRow := tview.NewFlex().SetDirection(tview.FlexColumn)
 	reqTabRow.SetBackgroundColor(ColorBg)
@@ -318,7 +416,7 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	// --- Main row (sidebar + right) ---
 	mainRow := tview.NewFlex().SetDirection(tview.FlexColumn)
 	mainRow.SetBackgroundColor(ColorBg)
-	mainRow.AddItem(v.Sidebar, 32, 0, true)
+	mainRow.AddItem(v.Sidebar, 48, 0, true)
 	mainRow.AddItem(rightPanel, 0, 1, false)
 
 	// --- Status bar ---
@@ -438,6 +536,21 @@ func (v *View) SetReqTab(index int) {
 	v.ReqActiveTab = index
 	v.renderReqTabBar()
 	v.ReqPages.SwitchToPage(reqTabNames[index])
+	// Keep ReqFocusWidget in sync so Tab cycling lands on the right widget.
+	switch reqTabNames[index] {
+	case "Headers":
+		v.ReqFocusWidget = v.ReqHeadersTable.Widget()
+	case "Body":
+		v.ReqFocusWidget = v.bodyFocusWidget()
+	case "Auth":
+		v.ReqFocusWidget = v.authFocusWidget()
+	case "Scripts":
+		v.ReqFocusWidget = v.ReqScriptsArea
+	case "Options":
+		v.ReqFocusWidget = v.ReqOptionsTable.Widget()
+	default:
+		v.ReqFocusWidget = v.ReqParamsTable.Widget()
+	}
 }
 
 // SetRespTab switches the active response tab.
@@ -448,28 +561,57 @@ func (v *View) SetRespTab(index int) {
 	v.RespActiveTab = index
 	v.renderRespTabBar()
 	v.RespPages.SwitchToPage(respTabNames[index])
+	// Keep RespFocusWidget in sync so Tab cycling lands on the right widget.
+	if respTabNames[index] == "Headers" {
+		v.RespFocusWidget = v.RespHeadersTv
+	} else {
+		v.RespFocusWidget = v.RespBodyTv
+	}
 }
 
 // UpdateRequestView populates the request panel from a parsed .http request.
 func (v *View) UpdateRequestView(req *httpfile.Request) {
 	// Headers tab
-	if len(req.Headers) == 0 {
-		v.ReqHeadersTv.SetText("\n\n\n[#4a4f72]No headers[-]")
-		v.ReqHeadersTv.SetTextAlign(tview.AlignCenter)
-	} else {
-		var b strings.Builder
-		for k, val := range req.Headers {
-			fmt.Fprintf(&b, "[#a78bfa]%s[-]: [#d4d8e8]%s[-]\n", k, val)
-		}
-		v.ReqHeadersTv.SetText(b.String())
-		v.ReqHeadersTv.SetTextAlign(tview.AlignLeft)
+	var headerPairs []widgets.KVPair
+	for k, val := range req.Headers {
+		headerPairs = append(headerPairs, widgets.KVPair{Key: k, Value: val})
 	}
+	v.ReqHeadersTable.SetPairs(headerPairs)
 
-	// Body tab
-	if req.Body == "" {
-		v.ReqBodyTv.SetText("\n\n\n[#4a4f72]No body[-]")
-	} else {
-		v.ReqBodyTv.SetText(req.Body)
+	// Body tab — detect type from Content-Type header, then populate content.
+	bodyType := detectBodyType(req.Headers["Content-Type"], req.Body)
+	v.ReqBodyArea.SetText("", false)
+	v.ReqFormTable.SetPairs(nil)
+	switch bodyType {
+	case "Form URL Encoded", "Multipart Form":
+		// Parse form-encoded body back into pairs.
+		if vals, err := url.ParseQuery(req.Body); err == nil {
+			var pairs []widgets.KVPair
+			for k, vs := range vals {
+				for _, val := range vs {
+					pairs = append(pairs, widgets.KVPair{Key: k, Value: val})
+				}
+			}
+			v.ReqFormTable.SetPairs(pairs)
+		}
+	default:
+		v.ReqBodyArea.SetText(req.Body, false)
+	}
+	// Update dropdown without re-triggering onChange (set index directly).
+	for i, opt := range bodyTypeOptions {
+		if opt == bodyType {
+			v.ReqBodyTypeDropDown.SetCurrentOption(i)
+			break
+		}
+	}
+	v.ReqBodyType = bodyType
+	switch bodyType {
+	case "No Body":
+		v.ReqBodyPages.SwitchToPage("none")
+	case "Form URL Encoded", "Multipart Form":
+		v.ReqBodyPages.SwitchToPage("form")
+	default:
+		v.ReqBodyPages.SwitchToPage("raw")
 	}
 
 	// Params tab — parse URL query params into KVTable
@@ -562,7 +704,7 @@ func statusBarText(file string, sending bool) string {
 	key := func(k, label string) string {
 		return fmt.Sprintf(" [#a78bfa]%s[-] [#8b90a8]%s[-]", k, label)
 	}
-	shortcuts := key("^c", "Quit") + key("^j", "Send") + key("^t", "Method") + key("^[", "Sidebar") + key("Tab", "Focus")
+	shortcuts := key("^c", "Quit") + key("^j", "Send") + key("^t", "Method") + key("^[", "Sidebar") + key("Tab", "Focus") + key("[/]", "Tabs")
 	state := ""
 	if sending {
 		state = "  [#a78bfa]Sending...[-]"
@@ -598,9 +740,219 @@ func (v *View) EnvSelectedIndex() int {
 	return idx
 }
 
+var bodyTypeOptions = []string{
+	"No Body",
+	"JSON", "Form URL Encoded", "Multipart Form",
+	"XML", "TEXT", "SPARQL",
+}
+
+// switchBodyType updates the active body sub-page and focus widget.
+func (v *View) switchBodyType(bodyType string) {
+	v.ReqBodyType = bodyType
+	switch bodyType {
+	case "No Body":
+		v.ReqBodyPages.SwitchToPage("none")
+	case "Form URL Encoded", "Multipart Form":
+		v.ReqBodyPages.SwitchToPage("form")
+	default:
+		v.ReqBodyPages.SwitchToPage("raw")
+	}
+	v.ReqFocusWidget = v.bodyFocusWidget()
+}
+
+// bodyFocusWidget returns the focusable widget for the currently selected body type.
+func (v *View) bodyFocusWidget() tview.Primitive {
+	switch v.ReqBodyType {
+	case "No Body":
+		return v.ReqBodyTypeDropDown
+	case "Form URL Encoded", "Multipart Form":
+		return v.ReqFormTable.Widget()
+	default:
+		return v.ReqBodyArea
+	}
+}
+
+// GetBody returns the serialised request body based on the selected body type.
+func (v *View) GetBody() string {
+	switch v.ReqBodyType {
+	case "No Body":
+		return ""
+	case "Form URL Encoded", "Multipart Form":
+		vals := url.Values{}
+		for _, p := range v.ReqFormTable.GetPairs() {
+			if p.Key != "" {
+				vals.Set(p.Key, p.Value)
+			}
+		}
+		return vals.Encode()
+	default:
+		return v.ReqBodyArea.GetText()
+	}
+}
+
+// GetBodyContentType returns the Content-Type implied by the selected body type,
+// or "" for No Body (caller should not set the header in that case).
+func (v *View) GetBodyContentType() string {
+	switch v.ReqBodyType {
+	case "JSON":
+		return "application/json"
+	case "XML":
+		return "application/xml"
+	case "TEXT":
+		return "text/plain"
+	case "SPARQL":
+		return "application/sparql-query"
+	case "Form URL Encoded":
+		return "application/x-www-form-urlencoded"
+	case "Multipart Form":
+		return "multipart/form-data"
+	default:
+		return ""
+	}
+}
+
+// GetAuth converts the current auth fields into HTTP headers ready to send.
+func (v *View) GetAuth() map[string]string {
+	pairMap := make(map[string]string)
+	for _, p := range v.ReqAuthTable.GetPairs() {
+		if p.Key != "" {
+			pairMap[p.Key] = p.Value
+		}
+	}
+	switch v.ReqAuthType {
+	case "Bearer Token":
+		if token := pairMap["Token"]; token != "" {
+			return map[string]string{"Authorization": "Bearer " + token}
+		}
+	case "Basic Auth":
+		user, pass := pairMap["Username"], pairMap["Password"]
+		encoded := base64.StdEncoding.EncodeToString([]byte(user + ":" + pass))
+		return map[string]string{"Authorization": "Basic " + encoded}
+	case "API Key":
+		if k, v := pairMap["Key"], pairMap["Value"]; k != "" {
+			return map[string]string{k: v}
+		}
+	case "AWS Sig v4", "Digest Auth", "NTLM Auth", "WSSE Auth", "OAuth 2.0":
+		// Pass raw pairs through as headers (full signing not implemented).
+		if len(pairMap) > 0 {
+			return pairMap
+		}
+	}
+	return nil
+}
+
+// GetHeaders returns the current request headers from the interactive headers table.
+func (v *View) GetHeaders() map[string]string {
+	pairs := v.ReqHeadersTable.GetPairs()
+	if len(pairs) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		if p.Key != "" {
+			m[p.Key] = p.Value
+		}
+	}
+	return m
+}
+
+var authTypeOptions = []string{
+	"Inherit", "No Auth",
+	"Bearer Token", "Basic Auth", "API Key",
+	"AWS Sig v4", "Digest Auth", "NTLM Auth", "WSSE Auth", "OAuth 2.0",
+}
+
+// authTypeFields returns the predefined KVPair keys for each auth type.
+func authTypeFields(authType string) []widgets.KVPair {
+	switch authType {
+	case "Bearer Token":
+		return []widgets.KVPair{{Key: "Token", Value: ""}}
+	case "Basic Auth", "Digest Auth", "NTLM Auth", "WSSE Auth":
+		return []widgets.KVPair{{Key: "Username", Value: ""}, {Key: "Password", Value: ""}}
+	case "API Key":
+		return []widgets.KVPair{{Key: "Key", Value: ""}, {Key: "Value", Value: ""}}
+	case "AWS Sig v4":
+		return []widgets.KVPair{
+			{Key: "Access Key", Value: ""},
+			{Key: "Secret Key", Value: ""},
+			{Key: "AWS Region", Value: ""},
+			{Key: "AWS Service", Value: ""},
+		}
+	case "OAuth 2.0":
+		return []widgets.KVPair{{Key: "Access Token", Value: ""}}
+	}
+	return nil
+}
+
+// switchAuthType updates the active auth sub-page and populates the field table.
+func (v *View) switchAuthType(authType string) {
+	v.ReqAuthType = authType
+	fields := authTypeFields(authType)
+	if fields == nil {
+		v.ReqAuthPages.SwitchToPage("none")
+		v.ReqFocusWidget = v.ReqAuthTypeDropDown
+	} else {
+		v.ReqAuthTable.SetPairs(fields)
+		v.ReqAuthPages.SwitchToPage("fields")
+		v.ReqFocusWidget = v.ReqAuthTable.Widget()
+	}
+}
+
+// authFocusWidget returns the right focus target for the current auth type.
+func (v *View) authFocusWidget() tview.Primitive {
+	if authTypeFields(v.ReqAuthType) == nil {
+		return v.ReqAuthTypeDropDown
+	}
+	return v.ReqAuthTable.Widget()
+}
+
+// detectBodyType returns the body type string for the given Content-Type and body.
+func detectBodyType(contentType, body string) string {
+	ct := strings.ToLower(strings.SplitN(contentType, ";", 2)[0])
+	ct = strings.TrimSpace(ct)
+	switch ct {
+	case "application/json":
+		return "JSON"
+	case "application/xml", "text/xml":
+		return "XML"
+	case "text/plain":
+		return "TEXT"
+	case "application/sparql-query":
+		return "SPARQL"
+	case "application/x-www-form-urlencoded":
+		return "Form URL Encoded"
+	case "multipart/form-data":
+		return "Multipart Form"
+	}
+	if body != "" {
+		return "JSON" // sensible default for non-empty bodies without a Content-Type
+	}
+	return "No Body"
+}
+
 // IsInReqPanel reports whether p is a focusable widget inside the request panel.
 func (v *View) IsInReqPanel(p tview.Primitive) bool {
-	return v.ReqParamsTable.ContainsFocus(p) || p == v.ReqHeadersTv || p == v.ReqBodyTv
+	return v.ReqParamsTable.ContainsFocus(p) ||
+		v.ReqHeadersTable.ContainsFocus(p) ||
+		v.ReqAuthTable.ContainsFocus(p) ||
+		v.ReqOptionsTable.ContainsFocus(p) ||
+		v.ReqFormTable.ContainsFocus(p) ||
+		p == v.ReqBodyTypeDropDown ||
+		p == v.ReqAuthTypeDropDown ||
+		p == v.ReqBodyArea ||
+		p == v.ReqScriptsArea
+}
+
+// IsInReqPanelNav reports whether p is in the request panel on a widget where
+// [ and ] can safely be used for tab navigation (i.e. not a text input area).
+func (v *View) IsInReqPanelNav(p tview.Primitive) bool {
+	return v.ReqParamsTable.ContainsFocus(p) ||
+		v.ReqHeadersTable.ContainsFocus(p) ||
+		v.ReqAuthTable.ContainsFocus(p) ||
+		v.ReqOptionsTable.ContainsFocus(p) ||
+		v.ReqFormTable.ContainsFocus(p) ||
+		p == v.ReqBodyTypeDropDown ||
+		p == v.ReqAuthTypeDropDown
 }
 
 // IsInRespPanel reports whether p is a focusable widget inside the response panel.

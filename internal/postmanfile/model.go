@@ -4,8 +4,27 @@ import "encoding/json"
 
 // Collection is the top-level Postman collection v2.1 structure.
 type Collection struct {
-	Info  Info   `json:"info"`
-	Items []Item `json:"item"`
+	Info      Info       `json:"info"`
+	Items     []Item     `json:"item"`
+	Variables []Variable `json:"variable"`
+}
+
+// Variable is a collection-level variable definition.
+type Variable struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// Vars returns the collection variables as a key→value map.
+func (c *Collection) Vars() map[string]string {
+	if len(c.Variables) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(c.Variables))
+	for _, v := range c.Variables {
+		m[v.Key] = v.Value
+	}
+	return m
 }
 
 type Info struct {

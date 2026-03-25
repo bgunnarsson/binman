@@ -45,6 +45,32 @@ case event.Key() == tcell.KeyEscape:
 			}
 			a.TV.SetFocus(next)
 			return nil
+
+		case event.Key() == tcell.KeyRune && event.Rune() == '[':
+			focused := a.TV.GetFocus()
+			if a.View.IsInReqPanelNav(focused) {
+				a.View.SetReqTab(a.View.ReqActiveTab - 1)
+				a.TV.SetFocus(a.View.ReqFocusWidget)
+				return nil
+			}
+			if a.View.IsInRespPanel(focused) {
+				a.View.SetRespTab(a.View.RespActiveTab - 1)
+				a.TV.SetFocus(a.View.RespFocusWidget)
+				return nil
+			}
+
+		case event.Key() == tcell.KeyRune && event.Rune() == ']':
+			focused := a.TV.GetFocus()
+			if a.View.IsInReqPanelNav(focused) {
+				a.View.SetReqTab(a.View.ReqActiveTab + 1)
+				a.TV.SetFocus(a.View.ReqFocusWidget)
+				return nil
+			}
+			if a.View.IsInRespPanel(focused) {
+				a.View.SetRespTab(a.View.RespActiveTab + 1)
+				a.TV.SetFocus(a.View.RespFocusWidget)
+				return nil
+			}
 		}
 		return event
 	})
