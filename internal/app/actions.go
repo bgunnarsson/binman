@@ -4,11 +4,14 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/bgunnarsson/binman/internal/brufile"
 	"github.com/bgunnarsson/binman/internal/envfile"
 	"github.com/bgunnarsson/binman/internal/httpclient"
 	"github.com/bgunnarsson/binman/internal/httpfile"
+	"github.com/bgunnarsson/binman/internal/postmanfile"
 )
 
 var debugLog *log.Logger
@@ -26,23 +29,54 @@ func dbg(format string, args ...any) {
 	}
 }
 
-// LoadFile parses a .http file and updates the view.
+// LoadFile parses a .http or .bru file and updates the view.
 func (a *App) LoadFile(path string) {
-	req, err := httpfile.Load(path)
+	var req *httpfile.Request
+	var err error
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".bru":
+		req, err = brufile.Load(path)
+	default:
+		req, err = httpfile.Load(path)
+	}
 	if err != nil {
 		a.View.RespBodyTv.SetText("[red]Failed to load file: " + err.Error() + "[-]")
 		a.View.SetRespTab(0)
 		return
 	}
-	a.State.CurrentFile = path
+	a.loadRequest(req, filepath.Dir(path))
+}
+
+// LoadPostmanRequest loads a specific request from a Postman collection.
+func (a *App) LoadPostmanRequest(collectionPath string, itemPath []int) {
+	data, err := os.ReadFile(collectionPath)
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to read collection: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	c, err := postmanfile.Parse(data)
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to parse collection: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	req, err := postmanfile.RequestAt(c, itemPath)
+	if err != nil {
+		a.View.RespBodyTv.SetText("[red]Failed to extract request: " + err.Error() + "[-]")
+		a.View.SetRespTab(0)
+		return
+	}
+	a.loadRequest(req, filepath.Dir(collectionPath))
+}
+
+// loadRequest updates the view with a parsed request and discovers env files in dir.
+func (a *App) loadRequest(req *httpfile.Request, dir string) {
 	a.State.CurrentRequest = req
-	a.View.SetCurrentFile(path)
 	a.View.UpdateRequestView(req)
 
-	// Scan the file's directory for .env / .env.* files
-	dir := filepath.Dir(path)
 	envFiles := envfile.Find(dir)
-	dbg("LoadFile: path=%s dir=%s envFiles=%d", path, dir, len(envFiles))
+	dbg("loadRequest: dir=%s envFiles=%d", dir, len(envFiles))
 	for i, ef := range envFiles {
 		dbg("  env[%d]: label=%s path=%s", i, ef.Label, ef.Path)
 	}
