@@ -2,7 +2,7 @@
 
 A terminal UI HTTP client. Browse and send HTTP requests from your terminal without leaving the keyboard.
 
-Supports `.http`, `.bru` (Bruno), and `.postman_collection.json` (Postman) files.
+Supports `.http`, `.bru` (Bruno), `.postman_collection.json` (Postman), and OpenAPI/Swagger spec files.
 
 ---
 
@@ -119,11 +119,47 @@ headers {
 
 Drop a Postman collection export into your collection directory. binman will expand it in the sidebar as a tree of folders and requests.
 
+### OpenAPI / Swagger specs
+
+Drop an OpenAPI 3.x or Swagger 2.x spec (YAML or JSON) into your collection directory. binman detects it by content and expands it in the sidebar grouped by tag:
+
+```
+▶ openapi.yaml
+  ▼ Pets
+    GET  /pets
+    POST /pets
+    GET  /pets/{id}
+  ▼ Orders
+    GET  /orders
+```
+
+Selecting an operation loads the URL and method. A `Content-Type: application/json` header is added automatically when the operation defines a JSON request body. Path parameters like `{id}` can be filled in manually or via environment variables.
+
+Both `.yaml`/`.yml` and `.json` spec files are supported.
+
 ---
 
 ## Environment variables
 
-Place a `.env` file alongside your request files to define variables:
+Place a `.env` file anywhere in your collection tree to define variables. binman walks up from the request file's directory to the root, so a single `.env` at the top of your collections folder applies to all requests within it:
+
+```
+collections/
+  .env                  ← applies to everything below
+  cms/
+    delivery/
+      get.http          ← picks up collections/.env
+```
+
+A more specific `.env` in a subdirectory takes precedence over one higher up. Use `.env.*` files for multiple environments:
+
+```
+.env              → labeled "default"
+.env.staging      → labeled "staging"
+.env.production   → labeled "production"
+```
+
+Switch between environments using the dropdown in the URL bar.
 
 ```sh
 # .env
@@ -137,16 +173,6 @@ Use `{{VAR_NAME}}` anywhere in the URL, headers, or body:
 GET {{BASE_URL}}/users
 Authorization: Bearer {{TOKEN}}
 ```
-
-Multiple environments are supported via `.env.*` files:
-
-```
-.env              → labeled "default"
-.env.staging      → labeled "staging"
-.env.production   → labeled "production"
-```
-
-Switch between environments using the dropdown in the URL bar.
 
 ---
 

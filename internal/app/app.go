@@ -31,7 +31,7 @@ func New(root string) (*App, error) {
 
 	a := &App{
 		TV:    tview.NewApplication(),
-		State: &State{},
+		State: &State{Root: root},
 	}
 
 	// We build the view after the tree, since the tree's handler references the view.
@@ -75,9 +75,29 @@ func New(root string) (*App, error) {
 		a.TV.ForceDraw()
 	}
 
+	openOpenAPIOperation := func(specPath, path, method string) {
+		defer func() {
+			if r := recover(); r != nil {
+				if view != nil {
+					view.RespBodyTv.SetText(fmt.Sprintf("[red]PANIC: %v\n%s[-]", r, debug.Stack()))
+					view.SetRespTab(0)
+					a.TV.ForceDraw()
+				}
+			}
+		}()
+
+		if view == nil {
+			return
+		}
+
+		a.LoadOpenAPIOperation(specPath, path, method)
+		a.TV.ForceDraw()
+	}
+
 	tree := fsview.NewTree(root, fsview.Filter{ShowNonHTTP: false}, fsview.Handlers{
-		OpenHTTPFile:       openHTTPFile,
-		OpenPostmanRequest: openPostmanRequest,
+		OpenHTTPFile:         openHTTPFile,
+		OpenPostmanRequest:   openPostmanRequest,
+		OpenOpenAPIOperation: openOpenAPIOperation,
 	})
 
 	view = ui.NewView(a.TV, tree)

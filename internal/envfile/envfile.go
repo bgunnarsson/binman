@@ -14,24 +14,57 @@ type EnvFile struct {
 	Label string
 }
 
-// Find scans dir for .env and .env.* files.
-func Find(dir string) []EnvFile {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
+// Find walks up the directory tree from dir to root (inclusive), collecting
+// .env and .env.* files at each level. When the same label appears at multiple
+// levels the deepest (most specific) file wins. Returns files sorted by label.
+func Find(dir, root string) []EnvFile {
+	dir = filepath.Clean(dir)
+	root = filepath.Clean(root)
+
+	// Walk from dir up to root, collecting dirs in order (deepest first).
+	var dirs []string
+	cur := dir
+	for {
+		dirs = append(dirs, cur)
+		if cur == root {
+			break
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			// Reached filesystem root without hitting root — stop.
+			break
+		}
+		cur = parent
 	}
+
+	// Merge: deepest wins. Use a map keyed by label so shallower levels don't
+	// overwrite entries already found at a deeper level.
+	seen := map[string]bool{}
 	var result []EnvFile
-	for _, e := range entries {
-		if e.IsDir() {
+	for _, d := range dirs {
+		entries, err := os.ReadDir(d)
+		if err != nil {
 			continue
 		}
-		name := e.Name()
-		switch {
-		case name == ".env":
-			result = append(result, EnvFile{Path: filepath.Join(dir, name), Label: "default"})
-		case strings.HasPrefix(name, ".env."):
-			label := strings.TrimPrefix(name, ".env.")
-			result = append(result, EnvFile{Path: filepath.Join(dir, name), Label: label})
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			var label string
+			switch {
+			case name == ".env":
+				label = "default"
+			case strings.HasPrefix(name, ".env."):
+				label = strings.TrimPrefix(name, ".env.")
+			default:
+				continue
+			}
+			if seen[label] {
+				continue
+			}
+			seen[label] = true
+			result = append(result, EnvFile{Path: filepath.Join(d, name), Label: label})
 		}
 	}
 	return result

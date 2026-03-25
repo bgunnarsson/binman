@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/bgunnarsson/binman/internal/openapi"
 	"github.com/bgunnarsson/binman/internal/postmanfile"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -22,6 +23,8 @@ const (
 	NodeBruFile
 	NodePostmanCollection
 	NodePostmanRequest
+	NodeOpenAPIFile
+	NodeOpenAPIOperation
 )
 
 type FSNode struct {
@@ -42,13 +45,27 @@ type PostmanFolderNode struct {
 	Name string
 }
 
+// OpenAPINode is the tview reference for a virtual OpenAPI operation leaf node.
+type OpenAPINode struct {
+	SpecPath string
+	Path     string // e.g. "/users/{id}"
+	Method   string // e.g. "GET"
+	Summary  string
+}
+
+// OpenAPITagNode is the tview reference for a virtual OpenAPI tag folder node.
+type OpenAPITagNode struct {
+	Name string
+}
+
 type Filter struct {
 	ShowNonHTTP bool
 }
 
 type Handlers struct {
-	OpenHTTPFile       func(path string)
-	OpenPostmanRequest func(collectionPath string, itemPath []int)
+	OpenHTTPFile          func(path string)
+	OpenPostmanRequest    func(collectionPath string, itemPath []int)
+	OpenOpenAPIOperation  func(specPath, path, method string)
 }
 
 func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
@@ -94,6 +111,25 @@ func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
 			return
 		}
 
+		// Virtual OpenAPI operation node
+		if on, ok := n.GetReference().(OpenAPINode); ok {
+			if h.OpenOpenAPIOperation != nil {
+				h.OpenOpenAPIOperation(on.SpecPath, on.Path, on.Method)
+			}
+			return
+		}
+
+		// Virtual OpenAPI tag folder node
+		if tn, ok := n.GetReference().(OpenAPITagNode); ok {
+			n.SetExpanded(!n.IsExpanded())
+			if n.IsExpanded() {
+				n.SetText(dirLabel(iconExpanded(), tn.Name))
+			} else {
+				n.SetText(dirLabel(iconCollapsed(), tn.Name))
+			}
+			return
+		}
+
 		ref, ok := n.GetReference().(FSNode)
 		if !ok {
 			return
@@ -127,6 +163,18 @@ func NewTree(root string, f Filter, h Handlers) *tview.TreeView {
 				n.SetText(postmanCollectionLabel(iconExpanded(), name))
 			} else {
 				n.SetText(postmanCollectionLabel(iconCollapsed(), name))
+			}
+
+		case NodeOpenAPIFile:
+			if len(n.GetChildren()) == 0 {
+				populateOpenAPISpec(n, ref.Path)
+			}
+			n.SetExpanded(!n.IsExpanded())
+			name := filepath.Base(ref.Path)
+			if n.IsExpanded() {
+				n.SetText(openAPILabel(iconExpanded(), name))
+			} else {
+				n.SetText(openAPILabel(iconCollapsed(), name))
 			}
 		}
 	}
@@ -190,6 +238,13 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 			continue
 		}
 
+		if isOpenAPICandidate(name) {
+			if data, err := peekFile(path, 1024); err == nil && openapi.IsOpenAPISpec(data, name) {
+				items = append(items, item{name, path, NodeOpenAPIFile})
+				continue
+			}
+		}
+
 		if f.ShowNonHTTP {
 			items = append(items, item{name, path, NodeOtherFile})
 		}
@@ -215,6 +270,8 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 			label = bruFileLabel(it.path, it.name)
 		case NodePostmanCollection:
 			label = postmanCollectionLabel(iconCollapsed(), it.name)
+		case NodeOpenAPIFile:
+			label = openAPILabel(iconCollapsed(), it.name)
 		default:
 			label = fmt.Sprintf("[#4a4f72]%s %s[-]", iconFile(), it.name)
 		}
@@ -375,6 +432,73 @@ func addPostmanItems(parent *tview.TreeNode, collectionPath string, items []post
 			addPostmanItems(node, collectionPath, item.Items, itemPath)
 			parent.AddChild(node)
 		}
+	}
+}
+
+// openAPILabel returns a label for an OpenAPI spec node (sky blue).
+func openAPILabel(icon, name string) string {
+	return fmt.Sprintf("[#38bdf8]%s[-] [#bae6fd]%s[-]", icon, name)
+}
+
+// isOpenAPICandidate returns true for file extensions that may be OpenAPI specs.
+func isOpenAPICandidate(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasSuffix(lower, ".yaml") ||
+		strings.HasSuffix(lower, ".yml") ||
+		strings.HasSuffix(lower, ".json")
+}
+
+// peekFile reads up to n bytes from path without keeping the file open.
+func peekFile(path string, n int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	buf := make([]byte, n)
+	read, err := f.Read(buf)
+	if err != nil && read == 0 {
+		return nil, err
+	}
+	return buf[:read], nil
+}
+
+// populateOpenAPISpec parses an OpenAPI spec file and adds virtual child nodes.
+func populateOpenAPISpec(parent *tview.TreeNode, specPath string) {
+	data, err := os.ReadFile(specPath)
+	if err != nil {
+		return
+	}
+	spec, err := openapi.Parse(data, filepath.Base(specPath))
+	if err != nil {
+		return
+	}
+	groups := openapi.GroupedOperations(spec)
+	for _, group := range groups {
+		tagNode := tview.NewTreeNode(dirLabel(iconExpanded(), group.Tag)).
+			SetReference(OpenAPITagNode{Name: group.Tag}).
+			SetExpanded(true).
+			SetTextStyle(tcell.StyleDefault.Background(tcell.NewHexColor(0x0d0f1e))).
+			SetSelectedTextStyle(tcell.StyleDefault.
+				Background(tcell.NewHexColor(0x2d1f6e)).
+				Foreground(tcell.ColorWhite))
+
+		for _, op := range group.Operations {
+			label := httpFileLabelWithMethod(op.Method, op.Path)
+			opNode := tview.NewTreeNode(label).
+				SetReference(OpenAPINode{
+					SpecPath: specPath,
+					Path:     op.Path,
+					Method:   op.Method,
+					Summary:  op.Summary,
+				}).
+				SetTextStyle(tcell.StyleDefault.Background(tcell.NewHexColor(0x0d0f1e))).
+				SetSelectedTextStyle(tcell.StyleDefault.
+					Background(tcell.NewHexColor(0x2d1f6e)).
+					Foreground(tcell.ColorWhite))
+			tagNode.AddChild(opNode)
+		}
+		parent.AddChild(tagNode)
 	}
 }
 

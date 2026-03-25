@@ -8,9 +8,10 @@ import (
 
 // State holds the runtime state of the app.
 type State struct {
+	Root           string // HTTP_FILES root directory
 	CurrentFile    string
 	CurrentRequest *httpfile.Request
 	LastResponse   *httpclient.Response
 	Sending        bool
-	EnvFiles []envfile.EnvFile // env files found in the current file's directory
+	EnvFiles       []envfile.EnvFile // env files found by walking up from the current file's directory
 }
