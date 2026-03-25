@@ -1,13 +1,13 @@
 package main
 
 import (
-	"flag"
 	"log"
 	"os"
 	"path/filepath"
 	"runtime/debug"
 
-	"github.com/bgunnarsson/binreq/internal/app"
+	"github.com/bgunnarsson/binman/internal/app"
+	"github.com/bgunnarsson/binman/internal/config"
 )
 
 func main() {
@@ -23,13 +23,11 @@ func main() {
 		}
 	}()
 
-	collection := flag.String("collection", "/Users/bgunnarsson/Development/bgunnarsson/bg-http", "path to .http collections root")
-	flag.Parse()
-
-	root := filepath.Clean(*collection)
-	if v := os.Getenv("BINREQ_ROOT"); v != "" {
-		root = filepath.Clean(v)
+	cfg := config.Load()
+	if cfg.Collection == "" {
+		log.Fatal("HTTP_FILES not set — add 'HTTP_FILES = /path/to/files' to ~/.config/binman/config")
 	}
+	root := filepath.Clean(cfg.Collection)
 
 	var err error
 	a, err = app.New(root)

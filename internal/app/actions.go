@@ -3,10 +3,12 @@ package app
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/bgunnarsson/binreq/internal/httpclient"
-	"github.com/bgunnarsson/binreq/internal/httpfile"
+	"github.com/bgunnarsson/binman/internal/envfile"
+	"github.com/bgunnarsson/binman/internal/httpclient"
+	"github.com/bgunnarsson/binman/internal/httpfile"
 )
 
 var debugLog *log.Logger
@@ -36,6 +38,20 @@ func (a *App) LoadFile(path string) {
 	a.State.CurrentRequest = req
 	a.View.SetCurrentFile(path)
 	a.View.UpdateRequestView(req)
+
+	// Scan the file's directory for .env / .env.* files
+	dir := filepath.Dir(path)
+	envFiles := envfile.Find(dir)
+	dbg("LoadFile: path=%s dir=%s envFiles=%d", path, dir, len(envFiles))
+	for i, ef := range envFiles {
+		dbg("  env[%d]: label=%s path=%s", i, ef.Label, ef.Path)
+	}
+	a.State.EnvFiles = envFiles
+	labels := make([]string, len(envFiles))
+	for i, ef := range envFiles {
+		labels[i] = ef.Label
+	}
+	a.View.SetEnvOptions(labels)
 }
 
 // SendRequest executes the current request in a goroutine and updates the view.
@@ -51,15 +67,20 @@ func (a *App) SendRequest() {
 		return
 	}
 
+	// Resolve env variables
+	vars := a.resolveEnvVars()
+
 	req := &httpfile.Request{
 		Method:  method,
-		URL:     url,
+		URL:     envfile.Resolve(url, vars),
 		Headers: map[string]string{},
 	}
 
 	if a.State.CurrentRequest != nil {
-		req.Headers = a.State.CurrentRequest.Headers
-		req.Body = a.State.CurrentRequest.Body
+		for k, v := range a.State.CurrentRequest.Headers {
+			req.Headers[k] = envfile.Resolve(v, vars)
+		}
+		req.Body = envfile.Resolve(a.State.CurrentRequest.Body, vars)
 	}
 
 	a.State.Sending = true
@@ -87,6 +108,22 @@ func (a *App) SendRequest() {
 		dbg("QueueUpdateDraw returned")
 	}()
 }
+
+// resolveEnvVars parses the currently selected env file and returns its variables.
+func (a *App) resolveEnvVars() map[string]string {
+	idx := a.View.EnvSelectedIndex()
+	dbg("resolveEnvVars: EnvIndex=%d EnvFiles=%d", idx, len(a.State.EnvFiles))
+	if idx < 0 || idx >= len(a.State.EnvFiles) {
+		return nil
+	}
+	vars, err := envfile.Parse(a.State.EnvFiles[idx].Path)
+	dbg("resolveEnvVars: parsed vars=%d err=%v", len(vars), err)
+	if err != nil {
+		return nil
+	}
+	return vars
+}
+
 
 // CycleMethod rotates through HTTP methods.
 func (a *App) CycleMethod() {

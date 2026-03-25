@@ -1,4 +1,4 @@
-module github.com/bgunnarsson/binreq
+module github.com/bgunnarsson/binman
 
 go 1.22.5
 
