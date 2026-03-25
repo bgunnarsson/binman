@@ -1,6 +1,7 @@
 package openapi
 
 import (
+	"net/url"
 	"sort"
 	"strings"
 
@@ -80,7 +81,18 @@ func GroupedOperations(spec *Spec) []TagGroup {
 }
 
 // OperationRequest builds an httpfile.Request for the given path and method.
-// URL is composed from the first server URL in the spec (if any) plus path.
+//
+// URL base: uses the first server URL in the spec. If absent or relative,
+// falls back to {{URL}} so the user can supply it via .env.
+//
+// Parameters are resolved as follows:
+//   - path params  ({param}) → converted to {{param}} in the URL for env-var resolution
+//   - query params → appended to the URL query string (shown in the Params tab)
+//   - header params → added to req.Headers (shown in the Headers tab)
+//
+// Path-level parameters are merged with operation-level parameters;
+// operation-level parameters take precedence on duplicate names.
+//
 // A Content-Type: application/json header is added when the operation defines
 // a JSON request body.
 func OperationRequest(spec *Spec, path, method string) (*httpfile.Request, error) {
@@ -88,10 +100,16 @@ func OperationRequest(spec *Spec, path, method string) (*httpfile.Request, error
 	if len(spec.Servers) > 0 {
 		base = strings.TrimRight(spec.Servers[0].URL, "/")
 	}
+	if !strings.Contains(base, "://") {
+		base = "{{URL}}" + base
+	}
+
+	// Convert OpenAPI path params {param} → binman template {{param}}.
+	resolvedPath := pathToTemplate(path)
 
 	req := &httpfile.Request{
 		Method:  strings.ToUpper(method),
-		URL:     base + path,
+		URL:     base + resolvedPath,
 		Headers: map[string]string{},
 	}
 
@@ -101,6 +119,28 @@ func OperationRequest(spec *Spec, path, method string) (*httpfile.Request, error
 	}
 
 	op := operationByMethod(item, method)
+
+	// Merge path-level and operation-level parameters; operation wins on conflict.
+	params := mergeParams(item.Parameters, nil)
+	if op != nil {
+		params = mergeParams(item.Parameters, op.Parameters)
+	}
+
+	queryVals := url.Values{}
+	for _, p := range params {
+		switch strings.ToLower(p.In) {
+		case "query":
+			queryVals.Set(p.Name, "")
+		case "header":
+			req.Headers[p.Name] = ""
+		// "path" params are already handled by pathToTemplate above.
+		// "cookie" params are not supported in the UI.
+		}
+	}
+	if len(queryVals) > 0 {
+		req.URL += "?" + queryVals.Encode()
+	}
+
 	if op != nil && op.RequestBody != nil {
 		if _, hasJSON := op.RequestBody.Content["application/json"]; hasJSON {
 			req.Headers["Content-Type"] = "application/json"
@@ -108,6 +148,45 @@ func OperationRequest(spec *Spec, path, method string) (*httpfile.Request, error
 	}
 
 	return req, nil
+}
+
+// pathToTemplate converts OpenAPI single-brace path params ({param}) to the
+// binman double-brace template syntax ({{param}}).
+func pathToTemplate(path string) string {
+	var b strings.Builder
+	for i := 0; i < len(path); i++ {
+		if path[i] == '{' {
+			end := strings.IndexByte(path[i:], '}')
+			if end > 0 {
+				name := path[i+1 : i+end]
+				b.WriteString("{{")
+				b.WriteString(name)
+				b.WriteString("}}")
+				i += end
+				continue
+			}
+		}
+		b.WriteByte(path[i])
+	}
+	return b.String()
+}
+
+// mergeParams merges path-level and operation-level parameters.
+// Operation-level entries take precedence when the same name+in appears in both.
+func mergeParams(pathParams, opParams []Parameter) []Parameter {
+	type key struct{ name, in string }
+	seen := map[key]bool{}
+	var result []Parameter
+	for _, p := range opParams {
+		seen[key{p.Name, p.In}] = true
+		result = append(result, p)
+	}
+	for _, p := range pathParams {
+		if !seen[key{p.Name, p.In}] {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 func operationByMethod(item PathItem, method string) *Operation {

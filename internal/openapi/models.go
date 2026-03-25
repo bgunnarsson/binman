@@ -18,13 +18,14 @@ type Server struct {
 }
 
 type PathItem struct {
-	Get     *Operation `json:"get"     yaml:"get"`
-	Post    *Operation `json:"post"    yaml:"post"`
-	Put     *Operation `json:"put"     yaml:"put"`
-	Patch   *Operation `json:"patch"   yaml:"patch"`
-	Delete  *Operation `json:"delete"  yaml:"delete"`
-	Head    *Operation `json:"head"    yaml:"head"`
-	Options *Operation `json:"options" yaml:"options"`
+	Get        *Operation  `json:"get"        yaml:"get"`
+	Post       *Operation  `json:"post"       yaml:"post"`
+	Put        *Operation  `json:"put"        yaml:"put"`
+	Patch      *Operation  `json:"patch"      yaml:"patch"`
+	Delete     *Operation  `json:"delete"     yaml:"delete"`
+	Head       *Operation  `json:"head"       yaml:"head"`
+	Options    *Operation  `json:"options"    yaml:"options"`
+	Parameters []Parameter `json:"parameters" yaml:"parameters"` // shared across all methods on this path
 }
 
 type Operation struct {
