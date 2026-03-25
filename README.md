@@ -19,6 +19,13 @@ Supports `.http`, `.bru` (Bruno), and `.postman_collection.json` (Postman) files
 
 ## Installation
 
+### macOS — Homebrew
+
+```sh
+brew tap bgunnarsson/tap
+brew install binman
+```
+
 ### macOS / Linux — pre-built binary
 
 Download the latest release for your platform from the [releases page](https://github.com/bgunnarsson/binman/releases):
