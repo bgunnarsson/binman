@@ -10,7 +10,15 @@ func (a *App) setupKeymap() {
 	a.TV.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		dbg("key event: key=%v rune=%v", event.Key(), event.Rune())
 		switch {
-		case event.Key() == tcell.KeyCtrlC || event.Key() == tcell.KeyCtrlQ:
+		case event.Key() == tcell.KeyCtrlC:
+			// While a request is in flight, Ctrl+C cancels it instead of quitting.
+			if a.CancelRequest() {
+				return nil
+			}
+			a.TV.Stop()
+			return nil
+
+		case event.Key() == tcell.KeyCtrlQ:
 			a.TV.Stop()
 			return nil
 
@@ -22,7 +30,33 @@ func (a *App) setupKeymap() {
 			a.CycleMethod()
 			return nil
 
-case event.Key() == tcell.KeyEscape:
+		case event.Key() == tcell.KeyCtrlS:
+			// Save: response if focused on response body, else write request to source.
+			focused := a.TV.GetFocus()
+			if focused == a.View.RespBodyTv {
+				a.PromptSaveResponse()
+			} else {
+				a.PromptSaveRequest()
+			}
+			return nil
+
+		case event.Key() == tcell.KeyCtrlY:
+			a.PromptCopyCurl()
+			return nil
+
+		case event.Key() == tcell.KeyCtrlH:
+			a.PromptHistory()
+			return nil
+
+		case event.Key() == tcell.KeyCtrlF:
+			a.PromptSearch()
+			return nil
+
+		case event.Key() == tcell.KeyCtrlE:
+			a.PromptEnvEditor()
+			return nil
+
+		case event.Key() == tcell.KeyEscape:
 			// Return focus to sidebar
 			a.TV.SetFocus(a.View.Sidebar)
 			return nil
@@ -80,20 +114,14 @@ case event.Key() == tcell.KeyEscape:
 		a.SendRequest()
 	})
 
-	// Send on Enter in URL input
+	// Send on Enter in URL input — first see if it's a curl paste to import.
 	a.View.URLInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
+			if a.MaybeImportCurl() {
+				return
+			}
 			a.SendRequest()
 		}
 	})
 }
 
-// focusOrder returns the next primitive in the focus cycle.
-func focusOrder(current tview.Primitive, order []tview.Primitive) tview.Primitive {
-	for i, p := range order {
-		if p == current {
-			return order[(i+1)%len(order)]
-		}
-	}
-	return order[0]
-}

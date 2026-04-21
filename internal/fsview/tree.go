@@ -233,6 +233,11 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 			continue
 		}
 
+		if strings.EqualFold(filepath.Ext(name), ".graphql") {
+			items = append(items, item{name, path, NodeHTTPFile})
+			continue
+		}
+
 		if strings.HasSuffix(strings.ToLower(name), ".postman_collection.json") {
 			items = append(items, item{name, path, NodePostmanCollection})
 			continue
