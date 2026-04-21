@@ -6,7 +6,7 @@ REPO="binman"
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 SRC_REPO_DIR="${SCRIPT_DIR}/.."
-TAP_DIR="${SCRIPT_DIR}/../../homebrew-binman"
+TAP_DIR="${SCRIPT_DIR}/../../homebrew/binman"
 
 if [ $# -lt 1 ]; then
   echo "Usage: $0 <version-without-v>  (e.g. $0 1.0.0)" >&2
@@ -24,7 +24,9 @@ fi
 
 if [ ! -d "$TAP_DIR" ]; then
   echo "Homebrew tap repo not found: $TAP_DIR" >&2
-  echo "Create it first: gh repo create homebrew-binman --public" >&2
+  echo "Clone it first, e.g.:" >&2
+  echo "  gh repo create homebrew-binman --public" >&2
+  echo "  git clone git@github.com:${OWNER}/homebrew-binman.git \"$TAP_DIR\"" >&2
   exit 1
 fi
 
