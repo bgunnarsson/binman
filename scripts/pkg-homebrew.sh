@@ -14,7 +14,7 @@ if [ $# -lt 1 ]; then
 fi
 
 VERSION="$1"
-TAG="v${VERSION}"
+TAG="${VERSION}"
 TARBALL_URL="https://github.com/${OWNER}/${REPO}/archive/refs/tags/${TAG}.tar.gz"
 
 if [ ! -d "$SRC_REPO_DIR" ]; then
