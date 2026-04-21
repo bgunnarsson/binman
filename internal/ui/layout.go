@@ -37,7 +37,11 @@ var (
 
 // View holds all tview primitives that make up the UI.
 type View struct {
-	Root *tview.Flex
+	Root *tview.Pages // top-level container; hosts the main layout + modal overlays
+
+	mainFlex *tview.Flex
+	appRef   *tview.Application
+	modal    *tview.Pages // alias of Root, kept for clarity in modal.go
 
 	// URL bar
 	Method      *tview.DropDown
@@ -78,6 +82,9 @@ type View struct {
 	RespPages        *tview.Pages
 	RespBodyTv       *tview.TextView
 	RespHeadersTv    *tview.TextView
+	RespCookiesTv    *tview.TextView
+	RespScriptsTv    *tview.TextView
+	RespTraceTv      *tview.TextView
 
 	// Status bar
 	StatusBar *tview.TextView
@@ -93,7 +100,7 @@ type View struct {
 // NewView constructs the full layout around the provided sidebar tree.
 func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	ApplyTheme()
-	v := &View{Sidebar: sidebar}
+	v := &View{Sidebar: sidebar, appRef: app}
 
 	// --- Info bar ---
 	appLabel := tview.NewTextView()
@@ -380,17 +387,33 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	v.RespHeadersTv.SetDynamicColors(true)
 	v.RespHeadersTv.SetBackgroundColor(ColorBg)
 
+	v.RespCookiesTv = tview.NewTextView()
+	v.RespCookiesTv.SetDynamicColors(true)
+	v.RespCookiesTv.SetBackgroundColor(ColorBg)
+	v.RespCookiesTv.SetWrap(true)
+	v.RespCookiesTv.SetScrollable(true)
+	v.RespCookiesTv.SetBorderPadding(1, 0, 2, 2)
+
+	v.RespScriptsTv = tview.NewTextView()
+	v.RespScriptsTv.SetDynamicColors(true)
+	v.RespScriptsTv.SetBackgroundColor(ColorBg)
+	v.RespScriptsTv.SetWrap(true)
+	v.RespScriptsTv.SetScrollable(true)
+	v.RespScriptsTv.SetBorderPadding(1, 0, 2, 2)
+
+	v.RespTraceTv = tview.NewTextView()
+	v.RespTraceTv.SetDynamicColors(true)
+	v.RespTraceTv.SetBackgroundColor(ColorBg)
+	v.RespTraceTv.SetWrap(true)
+	v.RespTraceTv.SetScrollable(true)
+	v.RespTraceTv.SetBorderPadding(1, 0, 2, 2)
+
 	v.RespPages = tview.NewPages()
 	v.RespPages.AddPage("Body", v.RespBodyTv, true, true)
 	v.RespPages.AddPage("Headers", v.RespHeadersTv, true, false)
-	for _, name := range []string{"Cookies", "Scripts", "Trace"} {
-		stub := tview.NewTextView()
-		stub.SetDynamicColors(true)
-		stub.SetBackgroundColor(ColorBg)
-		stub.SetTextAlign(tview.AlignCenter)
-		stub.SetText(fmt.Sprintf("\n\n\n[#4a4f72]%s[-]", name))
-		v.RespPages.AddPage(name, stub, true, false)
-	}
+	v.RespPages.AddPage("Cookies", v.RespCookiesTv, true, false)
+	v.RespPages.AddPage("Scripts", v.RespScriptsTv, true, false)
+	v.RespPages.AddPage("Trace", v.RespTraceTv, true, false)
 
 	respTabRow := tview.NewFlex().SetDirection(tview.FlexColumn)
 	respTabRow.SetBackgroundColor(ColorBg)
@@ -426,12 +449,16 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	v.StatusBar.SetText(statusBarText("", false))
 
 	// --- Root ---
-	v.Root = tview.NewFlex().SetDirection(tview.FlexRow)
-	v.Root.SetBackgroundColor(ColorBg)
-	v.Root.AddItem(infoBarWrapper, 2, 0, false)
-	v.Root.AddItem(urlBarWrapper, 3, 0, false)
-	v.Root.AddItem(mainRow, 0, 1, true)
-	v.Root.AddItem(v.StatusBar, 1, 0, false)
+	v.mainFlex = tview.NewFlex().SetDirection(tview.FlexRow)
+	v.mainFlex.SetBackgroundColor(ColorBg)
+	v.mainFlex.AddItem(infoBarWrapper, 2, 0, false)
+	v.mainFlex.AddItem(urlBarWrapper, 3, 0, false)
+	v.mainFlex.AddItem(mainRow, 0, 1, true)
+	v.mainFlex.AddItem(v.StatusBar, 1, 0, false)
+
+	v.Root = tview.NewPages()
+	v.Root.AddPage("main", v.mainFlex, true, true)
+	v.modal = v.Root
 
 	// Focus helpers
 	v.ReqFocusWidget = v.ReqParamsTable.Widget()
@@ -562,9 +589,16 @@ func (v *View) SetRespTab(index int) {
 	v.renderRespTabBar()
 	v.RespPages.SwitchToPage(respTabNames[index])
 	// Keep RespFocusWidget in sync so Tab cycling lands on the right widget.
-	if respTabNames[index] == "Headers" {
+	switch respTabNames[index] {
+	case "Headers":
 		v.RespFocusWidget = v.RespHeadersTv
-	} else {
+	case "Cookies":
+		v.RespFocusWidget = v.RespCookiesTv
+	case "Scripts":
+		v.RespFocusWidget = v.RespScriptsTv
+	case "Trace":
+		v.RespFocusWidget = v.RespTraceTv
+	default:
 		v.RespFocusWidget = v.RespBodyTv
 	}
 }
@@ -700,11 +734,17 @@ func (v *View) UpdateStatus(sending bool) {
 	v.StatusBar.SetText(statusBarText(v.CurrentFile, sending))
 }
 
+// UpdateStatusError replaces the status bar with a transient message
+// (e.g. "saved", or an error). The next UpdateStatus call clears it.
+func (v *View) UpdateStatusError(msg string) {
+	v.StatusBar.SetText(fmt.Sprintf(" [#fcd34d]%s[-]", msg))
+}
+
 func statusBarText(file string, sending bool) string {
 	key := func(k, label string) string {
 		return fmt.Sprintf(" [#a78bfa]%s[-] [#8b90a8]%s[-]", k, label)
 	}
-	shortcuts := key("^c", "Quit") + key("^j", "Send") + key("^t", "Method") + key("^[", "Sidebar") + key("Tab", "Focus") + key("[/]", "Tabs")
+	shortcuts := key("^j", "Send") + key("^t", "Method") + key("^s", "Save") + key("^y", "cURL") + key("^f", "Find") + key("^h", "Hist") + key("^e", "Env") + key("^c", "Cancel/Quit")
 	state := ""
 	if sending {
 		state = "  [#a78bfa]Sending...[-]"
@@ -859,6 +899,7 @@ func (v *View) GetHeaders() map[string]string {
 var authTypeOptions = []string{
 	"Inherit", "No Auth",
 	"Bearer Token", "Basic Auth", "API Key",
+	"OAuth2 Client Credentials",
 	"AWS Sig v4", "Digest Auth", "NTLM Auth", "WSSE Auth", "OAuth 2.0",
 }
 
@@ -880,8 +921,38 @@ func authTypeFields(authType string) []widgets.KVPair {
 		}
 	case "OAuth 2.0":
 		return []widgets.KVPair{{Key: "Access Token", Value: ""}}
+	case "OAuth2 Client Credentials":
+		return []widgets.KVPair{
+			{Key: "Token URL", Value: ""},
+			{Key: "Client ID", Value: ""},
+			{Key: "Client Secret", Value: ""},
+			{Key: "Scope", Value: ""},
+		}
 	}
 	return nil
+}
+
+// GetAuthRaw returns the active auth type and the raw key→value pairs as
+// entered, without any HTTP-header rendering. Used by callers that need to
+// run auth-specific logic (e.g. fetching an OAuth2 token).
+func (v *View) GetAuthRaw() (string, map[string]string) {
+	pairs := map[string]string{}
+	for _, p := range v.ReqAuthTable.GetPairs() {
+		if p.Key != "" {
+			pairs[p.Key] = p.Value
+		}
+	}
+	return v.ReqAuthType, pairs
+}
+
+// GetFormPairs returns the raw key→value entries from the form-body table.
+func (v *View) GetFormPairs() []widgets.KVPair {
+	return v.ReqFormTable.GetPairs()
+}
+
+// GetScripts returns the raw text of the Scripts tab.
+func (v *View) GetScripts() string {
+	return v.ReqScriptsArea.GetText()
 }
 
 // switchAuthType updates the active auth sub-page and populates the field table.
@@ -957,5 +1028,9 @@ func (v *View) IsInReqPanelNav(p tview.Primitive) bool {
 
 // IsInRespPanel reports whether p is a focusable widget inside the response panel.
 func (v *View) IsInRespPanel(p tview.Primitive) bool {
-	return p == v.RespBodyTv || p == v.RespHeadersTv
+	return p == v.RespBodyTv ||
+		p == v.RespHeadersTv ||
+		p == v.RespCookiesTv ||
+		p == v.RespScriptsTv ||
+		p == v.RespTraceTv
 }
