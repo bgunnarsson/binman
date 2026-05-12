@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 
-	"github.com/bgunnarsson/binman/internal/envfile"
 	"github.com/bgunnarsson/binman/internal/httpclient"
 	"github.com/bgunnarsson/binman/internal/httpfile"
 )
@@ -16,7 +15,7 @@ type State struct {
 	LastResponse   *httpclient.Response
 	Sending        bool
 	Cancel         context.CancelFunc // cancels the in-flight request when set
-	EnvFiles       []envfile.EnvFile  // env files found by walking up from the current file's directory
-	CollectionVars map[string]string  // variables defined in the active Postman collection (if any)
+	EnvFiles       []EnvSource        // env sources (dotenv, Bruno, Postman) for the current request
+	CollectionVars map[string]string  // variables defined in the active collection (Postman variable[], Bruno collection.bru/folder.bru)
 	ExtractedVars  map[string]string  // values extracted from previous responses
 }

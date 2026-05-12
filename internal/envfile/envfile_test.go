@@ -36,6 +36,23 @@ func TestResolveUnknownLeftAlone(t *testing.T) {
 	}
 }
 
+func TestScanUnique(t *testing.T) {
+	got := Scan("GET {{BASE}}/users/{{USER_ID}}?ref={{BASE}}")
+	want := []string{"BASE", "USER_ID"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("got %v, want %v", got, want)
+	}
+}
+
+func TestScanEmpty(t *testing.T) {
+	if got := Scan(""); got != nil {
+		t.Errorf("empty input should return nil, got %v", got)
+	}
+	if got := Scan("no vars here"); got != nil {
+		t.Errorf("no matches should return nil, got %v", got)
+	}
+}
+
 func TestFindWalksUp(t *testing.T) {
 	root := t.TempDir()
 	deep := filepath.Join(root, "a", "b", "c")

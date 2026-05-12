@@ -23,6 +23,7 @@ import (
 	"github.com/bgunnarsson/binman/internal/oauth2"
 	"github.com/bgunnarsson/binman/internal/openapi"
 	"github.com/bgunnarsson/binman/internal/postmanfile"
+	"github.com/bgunnarsson/binman/internal/ui/widgets"
 )
 
 var debugLog *log.Logger
@@ -58,6 +59,9 @@ func (a *App) LoadFile(path string) {
 		return
 	}
 	a.State.CollectionVars = nil
+	if strings.EqualFold(filepath.Ext(path), ".bru") {
+		a.State.CollectionVars = brufile.CollectionVars(filepath.Dir(path), a.State.Root)
+	}
 	a.State.CurrentFile = path
 	a.View.SetCurrentFile(path)
 	a.loadRequest(req, filepath.Dir(path))
@@ -115,22 +119,54 @@ func (a *App) LoadOpenAPIOperation(specPath, path, method string) {
 	a.loadRequest(req, filepath.Dir(specPath))
 }
 
-// loadRequest updates the view with a parsed request and discovers env files in dir.
+// loadRequest updates the view with a parsed request and discovers env sources in dir.
 func (a *App) loadRequest(req *httpfile.Request, dir string) {
 	a.State.CurrentRequest = req
 	a.View.UpdateRequestView(req)
 
-	envFiles := envfile.Find(dir, a.State.Root)
-	dbg("loadRequest: dir=%s envFiles=%d", dir, len(envFiles))
-	for i, ef := range envFiles {
-		dbg("  env[%d]: label=%s path=%s", i, ef.Label, ef.Path)
+	sources := DiscoverEnvSources(dir, a.State.Root)
+	dbg("loadRequest: dir=%s envSources=%d", dir, len(sources))
+	for i, s := range sources {
+		dbg("  env[%d]: kind=%d label=%s path=%s", i, s.Kind, s.Label, s.Path)
 	}
-	a.State.EnvFiles = envFiles
-	labels := make([]string, len(envFiles))
-	for i, ef := range envFiles {
-		labels[i] = ef.Label
+	a.State.EnvFiles = sources
+	labels := make([]string, len(sources))
+	for i, s := range sources {
+		labels[i] = s.Label
 	}
 	a.View.SetEnvOptions(labels)
+
+	a.populateVarsTab()
+}
+
+// populateVarsTab scans the live request fields (URL bar, headers table, body)
+// for {{var}} references and pre-fills the Vars tab with their currently-
+// resolved values. Reads from the UI rather than State.CurrentRequest because
+// the latter gets replaced with the resolved snapshot after a send.
+func (a *App) populateVarsTab() {
+	var combined strings.Builder
+	combined.WriteString(a.View.URLInput.GetText())
+	combined.WriteByte('\n')
+	for k, v := range a.View.GetHeaders() {
+		combined.WriteString(k)
+		combined.WriteByte(':')
+		combined.WriteString(v)
+		combined.WriteByte('\n')
+	}
+	combined.WriteString(a.View.GetBody())
+
+	names := envfile.Scan(combined.String())
+	if len(names) == 0 {
+		a.View.SetVars(nil)
+		return
+	}
+
+	base := a.resolveBaseVars()
+	pairs := make([]widgets.KVPair, 0, len(names))
+	for _, name := range names {
+		pairs = append(pairs, widgets.KVPair{Key: name, Value: base[name]})
+	}
+	a.View.SetVars(pairs)
 }
 
 // SendRequest executes the current request in a goroutine and updates the view.
@@ -358,23 +394,49 @@ func (a *App) SaveResponseBody(path string) error {
 }
 
 // resolveEnvVars returns the merged variable map for the current request.
-// Collection variables (Postman) form the base; the selected .env file overrides
-// them; values extracted from previous responses override everything.
+// Precedence (lowest → highest):
+//  1. Collection vars (Postman variable[] / Bruno collection.bru,folder.bru)
+//  2. Selected env source (.env / Bruno environments/*.bru / *.postman_environment.json)
+//  3. Request-level vars block (e.g. Bruno `vars:pre-request`)
+//  4. Extracted vars (from previous response extractors)
+//  5. User overrides from the Vars tab
 func (a *App) resolveEnvVars() map[string]string {
+	merged := a.resolveBaseVars()
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	for k, v := range a.View.GetVars() {
+		merged[k] = v
+	}
+	if len(merged) == 0 {
+		return nil
+	}
+	return merged
+}
+
+// resolveBaseVars returns the resolved variable map without applying the user
+// overrides from the Vars tab. Used to pre-fill that tab on file load.
+func (a *App) resolveBaseVars() map[string]string {
 	merged := map[string]string{}
 	for k, v := range a.State.CollectionVars {
 		merged[k] = v
 	}
 
 	idx := a.View.EnvSelectedIndex()
-	dbg("resolveEnvVars: EnvIndex=%d EnvFiles=%d", idx, len(a.State.EnvFiles))
+	dbg("resolveBaseVars: EnvIndex=%d EnvSources=%d", idx, len(a.State.EnvFiles))
 	if idx >= 0 && idx < len(a.State.EnvFiles) {
-		envVars, err := envfile.Parse(a.State.EnvFiles[idx].Path)
-		dbg("resolveEnvVars: parsed vars=%d err=%v", len(envVars), err)
+		envVars, err := a.State.EnvFiles[idx].Parse()
+		dbg("resolveBaseVars: parsed vars=%d err=%v", len(envVars), err)
 		if err == nil {
 			for k, v := range envVars {
 				merged[k] = v
 			}
+		}
+	}
+
+	if a.State.CurrentRequest != nil {
+		for k, v := range a.State.CurrentRequest.Vars {
+			merged[k] = v
 		}
 	}
 
