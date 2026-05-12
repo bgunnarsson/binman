@@ -103,6 +103,10 @@ func New(root string) (*App, error) {
 	view = ui.NewView(a.TV, tree)
 	a.View = view
 
+	view.SetOnEnvChange(func() {
+		a.populateVarsTab()
+	})
+
 	a.TV.EnableMouse(true)
 	a.TV.SetRoot(view.Root, true)
 	a.TV.SetFocus(view.Sidebar)

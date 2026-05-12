@@ -204,6 +204,16 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 		return
 	}
 
+	// Detect Bruno collection root by sibling-check; used to hide the
+	// `environments/` directory in that one specific location.
+	isBrunoRoot := false
+	for _, e := range entries {
+		if !e.IsDir() && strings.EqualFold(e.Name(), "collection.bru") {
+			isBrunoRoot = true
+			break
+		}
+	}
+
 	type item struct {
 		name string
 		path string
@@ -219,6 +229,9 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 		path := filepath.Join(dir, name)
 
 		if e.IsDir() {
+			if isBrunoRoot && strings.EqualFold(name, "environments") {
+				continue
+			}
 			items = append(items, item{name, path, NodeDir})
 			continue
 		}
@@ -229,6 +242,12 @@ func populateDir(parent *tview.TreeNode, dir string, f Filter) {
 		}
 
 		if strings.EqualFold(filepath.Ext(name), ".bru") {
+			// Bruno metadata files (collection.bru, folder.bru) carry vars
+			// and meta but aren't requests — hide them from the sidebar.
+			lower := strings.ToLower(name)
+			if lower == "collection.bru" || lower == "folder.bru" {
+				continue
+			}
 			items = append(items, item{name, path, NodeBruFile})
 			continue
 		}

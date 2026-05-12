@@ -7,4 +7,8 @@ type Request struct {
 	Headers map[string]string
 	Body    string
 	RawText string
+	// Vars carries inline variables declared by the source file (e.g. Bruno
+	// `vars:pre-request` blocks). They override env-file and collection vars
+	// during resolution.
+	Vars map[string]string
 }

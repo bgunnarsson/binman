@@ -31,7 +31,7 @@ func uiDbg(format string, args ...any) {
 }
 
 var (
-	reqTabNames  = []string{"Params", "Headers", "Body", "Auth", "Info", "Scripts", "Options"}
+	reqTabNames  = []string{"Params", "Headers", "Vars", "Body", "Auth", "Info", "Scripts", "Options"}
 	respTabNames = []string{"Body", "Headers", "Cookies", "Scripts", "Trace"}
 )
 
@@ -46,6 +46,7 @@ type View struct {
 	// URL bar
 	Method      *tview.DropDown
 	EnvDropDown *tview.DropDown
+	onEnvChange func() // invoked whenever the env-dropdown selection changes
 	URLInput    *tview.InputField
 	RespStatusCode *tview.TextView
 	RespStatusBar  *tview.TextView
@@ -75,6 +76,7 @@ type View struct {
 	ReqScriptsArea      *tview.TextArea
 	ReqOptionsTable     *widgets.KVTable
 	ReqParamsTable      *widgets.KVTable
+	ReqVarsTable        *widgets.KVTable
 
 	// Response panel
 	RespTabBar       *tview.TextView
@@ -106,7 +108,7 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	appLabel := tview.NewTextView()
 	appLabel.SetDynamicColors(true)
 	appLabel.SetBackgroundColor(ColorBg)
-	appLabel.SetText("[#a78bfa]BINMAN[-] [#4a4f72]0.0.1[-]")
+	appLabel.SetText("[#a78bfa]BINMAN[-]")
 
 	envNoStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x1e293b)).Foreground(tcell.NewHexColor(0x64748b))
 
@@ -343,9 +345,12 @@ func NewView(app *tview.Application, sidebar *tview.TreeView) *View {
 	infoStub.SetTextAlign(tview.AlignCenter)
 	infoStub.SetText("\n\n\n[#4a4f72]Info[-]")
 
+	v.ReqVarsTable = widgets.NewKVTable(app)
+
 	v.ReqPages = tview.NewPages()
 	v.ReqPages.AddPage("Params", v.ReqParamsTable.Widget(), true, true)
 	v.ReqPages.AddPage("Headers", v.ReqHeadersTable.Widget(), true, false)
+	v.ReqPages.AddPage("Vars", v.ReqVarsTable.Widget(), true, false)
 	v.ReqPages.AddPage("Body", bodyTab, true, false)
 	v.ReqPages.AddPage("Auth", authTab, true, false)
 	v.ReqPages.AddPage("Info", infoStub, true, false)
@@ -567,6 +572,8 @@ func (v *View) SetReqTab(index int) {
 	switch reqTabNames[index] {
 	case "Headers":
 		v.ReqFocusWidget = v.ReqHeadersTable.Widget()
+	case "Vars":
+		v.ReqFocusWidget = v.ReqVarsTable.Widget()
 	case "Body":
 		v.ReqFocusWidget = v.bodyFocusWidget()
 	case "Auth":
@@ -752,8 +759,15 @@ func statusBarText(file string, sending bool) string {
 	return shortcuts + state
 }
 
-// SetEnvOptions populates the env dropdown. Pass nil/empty to show "no env".
-// Returns the selected index (always 0 when labels are present).
+// SetOnEnvChange registers a callback invoked whenever the env dropdown's
+// selection changes (including programmatic changes from SetEnvOptions).
+func (v *View) SetOnEnvChange(fn func()) {
+	v.onEnvChange = fn
+}
+
+// SetEnvOptions populates the env dropdown. When labels are non-empty, a
+// leading "no env" sentinel is prepended so users can disable env-file lookup
+// without leaving their file picker.
 func (v *View) SetEnvOptions(labels []string) {
 	noStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x1e293b)).Foreground(tcell.NewHexColor(0x64748b))
 	activeStyle := tcell.StyleDefault.Background(tcell.NewHexColor(0x0d6b5e)).Foreground(tcell.NewHexColor(0x5eead4))
@@ -762,22 +776,35 @@ func (v *View) SetEnvOptions(labels []string) {
 		v.EnvDropDown.SetOptions([]string{"no env"}, func(_ string, _ int) {
 			v.EnvDropDown.SetFieldStyle(noStyle)
 			v.EnvDropDown.SetFocusedStyle(noStyle)
+			if v.onEnvChange != nil {
+				v.onEnvChange()
+			}
 		})
 		v.EnvDropDown.SetCurrentOption(0)
 		return
 	}
 
-	v.EnvDropDown.SetOptions(labels, func(_ string, _ int) {
-		v.EnvDropDown.SetFieldStyle(activeStyle)
-		v.EnvDropDown.SetFocusedStyle(activeStyle)
+	opts := append([]string{"no env"}, labels...)
+	v.EnvDropDown.SetOptions(opts, func(_ string, idx int) {
+		style := activeStyle
+		if idx == 0 {
+			style = noStyle
+		}
+		v.EnvDropDown.SetFieldStyle(style)
+		v.EnvDropDown.SetFocusedStyle(style)
+		if v.onEnvChange != nil {
+			v.onEnvChange()
+		}
 	})
-	v.EnvDropDown.SetCurrentOption(0)
+	// Auto-select the first real env so the common case stays one-keystroke.
+	v.EnvDropDown.SetCurrentOption(1)
 }
 
-// EnvSelectedIndex returns the currently selected env index from the dropdown.
+// EnvSelectedIndex returns the index into the EnvSources slice for the
+// currently selected env, or -1 when "no env" is selected.
 func (v *View) EnvSelectedIndex() int {
 	idx, _ := v.EnvDropDown.GetCurrentOption()
-	return idx
+	return idx - 1
 }
 
 var bodyTypeOptions = []string{
@@ -884,6 +911,29 @@ func (v *View) GetAuth() map[string]string {
 // GetHeaders returns the current request headers from the interactive headers table.
 func (v *View) GetHeaders() map[string]string {
 	pairs := v.ReqHeadersTable.GetPairs()
+	if len(pairs) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(pairs))
+	for _, p := range pairs {
+		if p.Key != "" {
+			m[p.Key] = p.Value
+		}
+	}
+	return m
+}
+
+// SetVars populates the Vars tab with per-request {{var}} overrides. Each pair
+// is the var name and its currently-resolved value; users can edit values to
+// override for the next send.
+func (v *View) SetVars(pairs []widgets.KVPair) {
+	v.ReqVarsTable.SetPairs(pairs)
+}
+
+// GetVars returns the user-edited variable overrides from the Vars tab.
+// Returns nil when the table is empty.
+func (v *View) GetVars() map[string]string {
+	pairs := v.ReqVarsTable.GetPairs()
 	if len(pairs) == 0 {
 		return nil
 	}
@@ -1005,6 +1055,7 @@ func detectBodyType(contentType, body string) string {
 func (v *View) IsInReqPanel(p tview.Primitive) bool {
 	return v.ReqParamsTable.ContainsFocus(p) ||
 		v.ReqHeadersTable.ContainsFocus(p) ||
+		v.ReqVarsTable.ContainsFocus(p) ||
 		v.ReqAuthTable.ContainsFocus(p) ||
 		v.ReqOptionsTable.ContainsFocus(p) ||
 		v.ReqFormTable.ContainsFocus(p) ||
@@ -1019,6 +1070,7 @@ func (v *View) IsInReqPanel(p tview.Primitive) bool {
 func (v *View) IsInReqPanelNav(p tview.Primitive) bool {
 	return v.ReqParamsTable.ContainsFocus(p) ||
 		v.ReqHeadersTable.ContainsFocus(p) ||
+		v.ReqVarsTable.ContainsFocus(p) ||
 		v.ReqAuthTable.ContainsFocus(p) ||
 		v.ReqOptionsTable.ContainsFocus(p) ||
 		v.ReqFormTable.ContainsFocus(p) ||

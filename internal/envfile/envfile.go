@@ -111,3 +111,26 @@ func Resolve(s string, vars map[string]string) string {
 		return match
 	})
 }
+
+// Scan returns the unique variable names referenced in s as `{{name}}`.
+// Order is the order of first appearance.
+func Scan(s string) []string {
+	if s == "" {
+		return nil
+	}
+	matches := varRe.FindAllStringSubmatch(s, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		key := strings.TrimSpace(m[1])
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
