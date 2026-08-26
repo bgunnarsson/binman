@@ -4,6 +4,9 @@
 // -X/--request, -H/--header, -d/--data/--data-raw/--data-binary,
 // --data-urlencode, -u/--user, --url, -F/--form (treated as multipart).
 //
+// As curl itself does, a request built from -d/--data* fields defaults to
+// Content-Type: application/x-www-form-urlencoded unless one is set explicitly.
+//
 // Anything more exotic (--cert, --cacert, --resolve, --proxy, etc.) is silently
 // dropped — the goal is best-effort, not full curl emulation.
 package curlfile
@@ -44,6 +47,9 @@ func Parse(s string) (*httpfile.Request, error) {
 	req := &httpfile.Request{Headers: map[string]string{}}
 	method := ""
 	var positional []string
+	// Track whether any -d/--data/--data-urlencode field was seen so we can
+	// mirror curl's implicit application/x-www-form-urlencoded content type.
+	sawFormData := false
 
 	for i := 0; i < len(tokens); i++ {
 		tok := tokens[i]
@@ -71,6 +77,7 @@ func Parse(s string) (*httpfile.Request, error) {
 					req.Body += "&"
 				}
 				req.Body += v
+				sawFormData = true
 				if method == "" {
 					method = "POST"
 				}
@@ -85,6 +92,7 @@ func Parse(s string) (*httpfile.Request, error) {
 				} else {
 					req.Body += url.QueryEscape(v)
 				}
+				sawFormData = true
 				if method == "" {
 					method = "POST"
 				}
@@ -130,6 +138,14 @@ func Parse(s string) (*httpfile.Request, error) {
 		method = "GET"
 	}
 	req.Method = method
+	// curl implicitly sends application/x-www-form-urlencoded for -d/--data
+	// fields. Preserve that so form bodies (e.g. OAuth2 client_credentials token
+	// requests) are recognized as forms and sent with the right content type.
+	if sawFormData {
+		if _, exists := req.Headers["Content-Type"]; !exists {
+			req.Headers["Content-Type"] = "application/x-www-form-urlencoded"
+		}
+	}
 	return req, nil
 }
 

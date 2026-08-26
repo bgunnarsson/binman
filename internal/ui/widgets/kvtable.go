@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"strings"
+
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -113,6 +115,21 @@ func (kv *KVTable) GetPairs() []KVPair {
 	return out
 }
 
+// maskSecret obscures the value of secret-bearing keys (e.g. client_secret),
+// showing only the first 5 characters followed by dots. Non-secret keys are
+// returned unchanged. Only affects display; the stored value is untouched.
+func maskSecret(key, value string) string {
+	if !strings.Contains(strings.ToLower(key), "secret") {
+		return value
+	}
+	const shown = 5
+	if len([]rune(value)) <= shown {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:shown]) + strings.Repeat("•", len(runes)-shown)
+}
+
 func (kv *KVTable) render() {
 	kv.table.Clear()
 
@@ -124,7 +141,7 @@ func (kv *KVTable) render() {
 	for i, p := range kv.pairs {
 		kv.table.SetCell(i+1, 0, tview.NewTableCell(" "+p.Key).
 			SetTextColor(kvAccent).SetExpansion(1))
-		kv.table.SetCell(i+1, 1, tview.NewTableCell(p.Value).
+		kv.table.SetCell(i+1, 1, tview.NewTableCell(maskSecret(p.Key, p.Value)).
 			SetTextColor(kvText).SetExpansion(2))
 	}
 
