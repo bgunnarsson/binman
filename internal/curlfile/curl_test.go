@@ -1,6 +1,9 @@
 package curlfile
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestIsCurl(t *testing.T) {
 	cases := map[string]bool{
@@ -55,6 +58,45 @@ func TestParseDataImpliesPost(t *testing.T) {
 	req, _ := Parse(`curl -d "foo=bar" https://x`)
 	if req.Method != "POST" {
 		t.Errorf("expected POST, got %q", req.Method)
+	}
+}
+
+func TestParseDataImpliesFormContentType(t *testing.T) {
+	req, _ := Parse(`curl -d "foo=bar" https://x`)
+	if req.Headers["Content-Type"] != "application/x-www-form-urlencoded" {
+		t.Errorf("expected implicit form content type, got %v", req.Headers)
+	}
+}
+
+func TestParseOAuth2ClientCredentials(t *testing.T) {
+	// The OAuth2 client_credentials token request: auth lives entirely in the
+	// form body. curl sends it as application/x-www-form-urlencoded, and the
+	// client_secret comes via --data-urlencode.
+	src := `curl -s -X POST 'https://login.microsoftonline.com/tid/oauth2/v2.0/token' ` +
+		`-d 'grant_type=client_credentials' ` +
+		`-d 'client_id=abc' ` +
+		`-d 'scope=https://graph.microsoft.com/.default' ` +
+		`--data-urlencode 'client_secret=sec.ret~with/chars'`
+	req, err := Parse(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.Method != "POST" {
+		t.Errorf("method: %q", req.Method)
+	}
+	if req.Headers["Content-Type"] != "application/x-www-form-urlencoded" {
+		t.Errorf("content-type: %v", req.Headers)
+	}
+	// All four form fields must survive, including the url-encoded secret.
+	for _, want := range []string{
+		"grant_type=client_credentials",
+		"client_id=abc",
+		"scope=https://graph.microsoft.com/.default", // -d passes through raw
+		"client_secret=sec.ret~with%2Fchars",         // --data-urlencode encodes
+	} {
+		if !strings.Contains(req.Body, want) {
+			t.Errorf("body missing %q; got %q", want, req.Body)
+		}
 	}
 }
 
