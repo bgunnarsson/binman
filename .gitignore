@@ -1,0 +1,19 @@
+# Build output. `scripts/build.sh` writes platform binaries into dist/ and
+# `scripts/release.sh` packages them from there; both are published to the
+# GitHub releases page, which is where the README already sends people. They
+# were tracked here until 2026-09-04 — 41 artifacts spanning every version from
+# 1.0.0 to 1.0.8, and an 11 MB binary at the root — because this file did not
+# exist.
+/binman
+/dist/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+.DS_Store
