@@ -180,7 +180,10 @@ mod tests {
     #[test]
     fn a_value_that_holds_a_placeholder_is_expanded_too() {
         let env = vars(&[("HOST", "api.example.com"), ("BASE", "https://{{HOST}}/v1")]);
-        assert_eq!(resolve("{{BASE}}/users", &env), "https://api.example.com/v1/users");
+        assert_eq!(
+            resolve("{{BASE}}/users", &env),
+            "https://api.example.com/v1/users"
+        );
     }
 
     #[test]
@@ -191,8 +194,16 @@ mod tests {
 
     #[test]
     fn layers_win_in_the_documented_order() {
-        let collection = vars(&[("A", "collection"), ("B", "collection"), ("C", "collection")]);
-        let environment = vars(&[("B", "environment"), ("C", "environment"), ("D", "environment")]);
+        let collection = vars(&[
+            ("A", "collection"),
+            ("B", "collection"),
+            ("C", "collection"),
+        ]);
+        let environment = vars(&[
+            ("B", "environment"),
+            ("C", "environment"),
+            ("D", "environment"),
+        ]);
         let request = vars(&[("C", "request"), ("D", "request")]);
         let extracted = vars(&[("D", "extracted"), ("E", "extracted")]);
         let overrides = vars(&[("E", "override")]);

@@ -64,7 +64,8 @@ pub fn parse(text: &str) -> Request {
 
 fn strip_prefix_ignoring_case<'a>(text: &'a str, prefix: &str) -> Option<&'a str> {
     let head = text.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix).then(|| &text[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix)
+        .then(|| &text[prefix.len()..])
 }
 
 #[cfg(test)]

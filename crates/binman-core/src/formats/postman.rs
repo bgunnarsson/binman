@@ -405,7 +405,10 @@ mod tests {
         let list = collection.request_at(&[0, 0]).expect("a request");
         assert_eq!(list.method, "GET");
         assert_eq!(list.url, "{{BASE}}/users");
-        assert_eq!(list.headers, vec![("Accept".to_string(), "application/json".to_string())]);
+        assert_eq!(
+            list.headers,
+            vec![("Accept".to_string(), "application/json".to_string())]
+        );
 
         let create = collection.request_at(&[0, 1]).expect("a request");
         assert_eq!(create.method, "POST");
@@ -442,8 +445,14 @@ mod tests {
     fn environments_are_found_walking_up() {
         let root = testing::scratch("postman-envs");
         let deep = root.join("api").join("v1");
-        testing::write(&root.join("dev.postman_environment.json"), r#"{"values":[]}"#);
-        testing::write(&deep.join("prod.postman_environment.json"), r#"{"values":[]}"#);
+        testing::write(
+            &root.join("dev.postman_environment.json"),
+            r#"{"values":[]}"#,
+        );
+        testing::write(
+            &deep.join("prod.postman_environment.json"),
+            r#"{"values":[]}"#,
+        );
 
         let labels: Vec<String> = find_environments(&deep, &root)
             .into_iter()

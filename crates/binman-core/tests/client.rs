@@ -49,7 +49,8 @@ async fn sends_the_request_and_reads_the_response() {
     assert_eq!(seen.header("x-custom"), Some("hello"));
     assert_eq!(seen.text(), "payload");
     assert!(
-        seen.header("user-agent").is_some_and(|agent| agent.starts_with("binman/")),
+        seen.header("user-agent")
+            .is_some_and(|agent| agent.starts_with("binman/")),
         "{:?}",
         seen.header("user-agent")
     );
@@ -63,8 +64,14 @@ async fn the_trace_is_about_this_request() {
         .send(&get(&server.url), &CancellationToken::new(), |_| {})
         .await
         .expect("sends");
-    assert_eq!(exchange.trace.dns, None, "an IP address has nothing to resolve");
-    assert!(exchange.trace.connect.is_some(), "the new connection was timed");
+    assert_eq!(
+        exchange.trace.dns, None,
+        "an IP address has nothing to resolve"
+    );
+    assert!(
+        exchange.trace.connect.is_some(),
+        "the new connection was timed"
+    );
     assert!(exchange.trace.first_byte > Duration::ZERO);
     assert!(exchange.trace.total >= exchange.trace.first_byte);
 
@@ -73,7 +80,10 @@ async fn the_trace_is_about_this_request() {
         .send(&get(&by_name), &CancellationToken::new(), |_| {})
         .await
         .expect("sends");
-    assert!(exchange.trace.dns.is_some(), "a name was resolved and timed");
+    assert!(
+        exchange.trace.dns.is_some(),
+        "a name was resolved and timed"
+    );
 }
 
 #[tokio::test]
@@ -86,17 +96,29 @@ async fn cookies_are_kept_and_sent_back() {
     let client = client();
 
     let login = client
-        .send(&get(&format!("{}/login", server.url)), &CancellationToken::new(), |_| {})
+        .send(
+            &get(&format!("{}/login", server.url)),
+            &CancellationToken::new(),
+            |_| {},
+        )
         .await
         .expect("sends");
     assert_eq!(login.set_cookies.len(), 1);
     assert_eq!(login.set_cookies[0].name, "session");
     assert_eq!(login.set_cookies[0].value, "abc");
-    assert!(login.set_cookies[0].attributes.contains(&"HttpOnly".to_string()));
+    assert!(
+        login.set_cookies[0]
+            .attributes
+            .contains(&"HttpOnly".to_string())
+    );
     assert_eq!(login.jar, vec![("session".to_string(), "abc".to_string())]);
 
     client
-        .send(&get(&format!("{}/me", server.url)), &CancellationToken::new(), |_| {})
+        .send(
+            &get(&format!("{}/me", server.url)),
+            &CancellationToken::new(),
+            |_| {},
+        )
         .await
         .expect("sends");
     assert_eq!(server.last().unwrap().header("cookie"), Some("session=abc"));
@@ -130,7 +152,9 @@ async fn an_event_stream_arrives_an_event_at_a_time() {
 
     let mut events = Vec::new();
     let exchange = client()
-        .send(&get(&server.url), &CancellationToken::new(), |event| events.push(event))
+        .send(&get(&server.url), &CancellationToken::new(), |event| {
+            events.push(event)
+        })
         .await
         .expect("streams");
     assert!(exchange.streamed);
@@ -160,7 +184,9 @@ async fn what_cannot_be_sent_is_refused_before_it_leaves() {
     assert!(matches!(error, Error::Invalid(_)), "{error}");
 
     let mut bad_header = get("http://127.0.0.1:9/");
-    bad_header.headers.push(("X-Bad".into(), "line\nbreak".into()));
+    bad_header
+        .headers
+        .push(("X-Bad".into(), "line\nbreak".into()));
     let error = client()
         .send(&bad_header, &CancellationToken::new(), |_| {})
         .await
@@ -171,7 +197,11 @@ async fn what_cannot_be_sent_is_refused_before_it_leaves() {
 #[tokio::test]
 async fn a_refused_connection_says_why() {
     let error = client()
-        .send(&get("http://127.0.0.1:9/"), &CancellationToken::new(), |_| {})
+        .send(
+            &get("http://127.0.0.1:9/"),
+            &CancellationToken::new(),
+            |_| {},
+        )
         .await
         .unwrap_err();
     let Error::Http(message) = &error else {

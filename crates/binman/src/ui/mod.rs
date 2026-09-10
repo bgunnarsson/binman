@@ -114,7 +114,12 @@ pub fn counted_pane(title: &str, counter: impl Into<String>, focused: bool) -> B
     framed(title, counter, focused, theme::chrome())
 }
 
-fn framed(title: &str, counter: Vec<Span<'static>>, focused: bool, surface: Style) -> Block<'static> {
+fn framed(
+    title: &str,
+    counter: Vec<Span<'static>>,
+    focused: bool,
+    surface: Style,
+) -> Block<'static> {
     let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
@@ -128,7 +133,11 @@ fn framed(title: &str, counter: Vec<Span<'static>>, focused: bool, surface: Styl
 }
 
 /// Puts styled spans at the right end of a block's top border.
-fn with_counter(block: Block<'static>, counter: Vec<Span<'static>>, focused: bool) -> Block<'static> {
+fn with_counter(
+    block: Block<'static>,
+    counter: Vec<Span<'static>>,
+    focused: bool,
+) -> Block<'static> {
     if counter.is_empty() {
         return block;
     }
@@ -146,10 +155,7 @@ pub fn tabbed_pane(
     counter: Vec<Span<'static>>,
     focused: bool,
 ) -> Block<'static> {
-    let mut title = vec![
-        Span::styled("─", theme::border(focused)),
-        Span::raw(" "),
-    ];
+    let mut title = vec![Span::styled("─", theme::border(focused)), Span::raw(" ")];
     for (index, (label, active)) in sections.into_iter().enumerate() {
         if index > 0 {
             title.push(Span::raw("  "));
@@ -207,8 +213,15 @@ pub fn spot(area: Rect, x: u16, width: u16) -> Rect {
 
 /// The `row`th line of `area`, or nothing when it falls outside.
 pub fn line_at(area: Rect, row: usize) -> Rect {
-    let y = area.y.saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
-    Rect { y, height: 1, ..area }.intersection(area)
+    let y = area
+        .y
+        .saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+    Rect {
+        y,
+        height: 1,
+        ..area
+    }
+    .intersection(area)
 }
 
 /// Where each section's name sits in a tabbed pane's top border, as
@@ -411,7 +424,13 @@ pub fn input_line(
     focused: bool,
     style_of: impl Fn(usize) -> Style,
 ) -> Line<'static> {
-    Line::from(input_spans(input, width, focused, style_of, theme::cursor()))
+    Line::from(input_spans(
+        input,
+        width,
+        focused,
+        style_of,
+        theme::cursor(),
+    ))
 }
 
 /// A line input being typed into inside a row of a list: a well of its own
@@ -435,7 +454,11 @@ fn input_spans(
     cursor: Style,
 ) -> Vec<Span<'static>> {
     let width = width as usize;
-    let start = if focused { input.first_visible(width) } else { 0 };
+    let start = if focused {
+        input.first_visible(width)
+    } else {
+        0
+    };
     let mut runs = Runs::default();
     let mut used = 0;
 
@@ -510,7 +533,12 @@ mod tests {
         let wrapped = wrap_line(&line, 3);
         let text: Vec<String> = wrapped
             .iter()
-            .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect())
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
             .collect();
         assert_eq!(text, vec!["abc", "def", "gh"]);
         assert_eq!(wrapped[1].spans[0].style, theme::json_key());

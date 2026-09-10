@@ -56,6 +56,7 @@ impl Format {
 pub fn load(path: &Path) -> Result<Request> {
     let format = Format::of(path)
         .ok_or_else(|| Error::parse(path.display(), "not a request file binman reads"))?;
-    let text = std::fs::read_to_string(path).map_err(|error| Error::parse(path.display(), error))?;
+    let text =
+        std::fs::read_to_string(path).map_err(|error| Error::parse(path.display(), error))?;
     Ok(format.parse(&text))
 }

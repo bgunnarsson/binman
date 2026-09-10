@@ -43,7 +43,9 @@ pub fn parse(text: &str) -> Request {
         if let Some((name, value)) = line.split_once(':') {
             let name = name.trim();
             if !name.is_empty() {
-                request.headers.push((name.to_string(), value.trim().to_string()));
+                request
+                    .headers
+                    .push((name.to_string(), value.trim().to_string()));
             }
         }
     }
@@ -154,7 +156,10 @@ mod tests {
         assert_eq!(request.body, "", "the next request is not this one's body");
 
         let bare = parse("https://api.example.com/health\n");
-        assert_eq!((bare.method.as_str(), bare.url.as_str()), ("GET", "https://api.example.com/health"));
+        assert_eq!(
+            (bare.method.as_str(), bare.url.as_str()),
+            ("GET", "https://api.example.com/health")
+        );
     }
 
     #[test]

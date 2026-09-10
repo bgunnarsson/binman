@@ -26,17 +26,57 @@ pub fn is_curl(text: &str) -> bool {
 
 /// Flags that take a value.
 const VALUED: &[&str] = &[
-    "-X", "--request", "-H", "--header", "-d", "--data", "--data-raw", "--data-binary",
-    "--data-ascii", "--data-urlencode", "--json", "-u", "--user", "--url", "-F", "--form",
-    "--form-string", "-A", "--user-agent", "-e", "--referer", "-b", "--cookie",
+    "-X",
+    "--request",
+    "-H",
+    "--header",
+    "-d",
+    "--data",
+    "--data-raw",
+    "--data-binary",
+    "--data-ascii",
+    "--data-urlencode",
+    "--json",
+    "-u",
+    "--user",
+    "--url",
+    "-F",
+    "--form",
+    "--form-string",
+    "-A",
+    "--user-agent",
+    "-e",
+    "--referer",
+    "-b",
+    "--cookie",
 ];
 
 /// Flags that take none, so the token after one is never mistaken for its
 /// value.
 const SWITCHES: &[&str] = &[
-    "-s", "--silent", "-S", "--show-error", "-k", "--insecure", "-L", "--location", "-i",
-    "--include", "-v", "--verbose", "-f", "--fail", "-N", "--no-buffer", "--compressed", "-#",
-    "--progress-bar", "--http1.1", "--http2", "-g", "--globoff",
+    "-s",
+    "--silent",
+    "-S",
+    "--show-error",
+    "-k",
+    "--insecure",
+    "-L",
+    "--location",
+    "-i",
+    "--include",
+    "-v",
+    "--verbose",
+    "-f",
+    "--fail",
+    "-N",
+    "--no-buffer",
+    "--compressed",
+    "-#",
+    "--progress-bar",
+    "--http1.1",
+    "--http2",
+    "-g",
+    "--globoff",
 ];
 
 /// Short flags whose value may be written straight after them: `-XPOST`.
@@ -120,7 +160,11 @@ pub fn parse(text: &str) -> Result<Request> {
                 }
                 "-u" | "--user" => {
                     let encoded = base64::engine::general_purpose::STANDARD.encode(value);
-                    set_header(&mut request.headers, "Authorization", format!("Basic {encoded}"));
+                    set_header(
+                        &mut request.headers,
+                        "Authorization",
+                        format!("Basic {encoded}"),
+                    );
                 }
                 "--url" => request.url = value,
                 "-F" | "--form" | "--form-string" => {
@@ -158,9 +202,8 @@ pub fn parse(text: &str) -> Result<Request> {
     }
 
     request.body = data.join("&");
-    request.method = method.unwrap_or_else(|| {
-        if data.is_empty() { "GET" } else { "POST" }.to_string()
-    });
+    request.method =
+        method.unwrap_or_else(|| if data.is_empty() { "GET" } else { "POST" }.to_string());
     if header(&request.headers, "Content-Type").is_none() {
         if multipart {
             request
@@ -357,7 +400,10 @@ mod tests {
     #[test]
     fn a_bare_url_is_a_get() {
         let request = parse("curl https://example.com/x").unwrap();
-        assert_eq!((request.method.as_str(), request.url.as_str()), ("GET", "https://example.com/x"));
+        assert_eq!(
+            (request.method.as_str(), request.url.as_str()),
+            ("GET", "https://example.com/x")
+        );
     }
 
     #[test]
@@ -400,14 +446,21 @@ mod tests {
             "scope=https://graph.microsoft.com/.default",
             "client_secret=sec.ret~with%2Fchars",
         ] {
-            assert!(request.body.contains(expected), "{expected} missing from {}", request.body);
+            assert!(
+                request.body.contains(expected),
+                "{expected} missing from {}",
+                request.body
+            );
         }
     }
 
     #[test]
     fn user_becomes_basic_auth() {
         let request = parse("curl -u alice:secret https://x").unwrap();
-        assert_eq!(request.header("Authorization"), Some("Basic YWxpY2U6c2VjcmV0"));
+        assert_eq!(
+            request.header("Authorization"),
+            Some("Basic YWxpY2U6c2VjcmV0")
+        );
     }
 
     #[test]
@@ -469,7 +522,10 @@ mod tests {
         let request = Request {
             method: "POST".into(),
             url: "https://x/upload".into(),
-            headers: vec![("Content-Type".into(), "multipart/form-data; boundary=b".into())],
+            headers: vec![(
+                "Content-Type".into(),
+                "multipart/form-data; boundary=b".into(),
+            )],
             ..Request::default()
         };
         let fields = vec![("file".to_string(), "@/tmp/a.png".to_string())];

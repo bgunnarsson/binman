@@ -114,7 +114,9 @@ fn encode(text: &str) -> String {
         out.push_str(&text[range.clone()]);
         last = range.end;
     }
-    out.extend(url::form_urlencoded::byte_serialize(&text.as_bytes()[last..]));
+    out.extend(url::form_urlencoded::byte_serialize(
+        &text.as_bytes()[last..],
+    ));
     out
 }
 

@@ -50,13 +50,11 @@ impl EnvSource {
 /// The environments above a request in `dir`: `.env` files first, then
 /// Bruno's, then Postman's — v1's order.
 pub fn discover(dir: &Path, root: &Path) -> Vec<EnvSource> {
-    let dotenv = dotenv::find(dir, root)
-        .into_iter()
-        .map(|file| EnvSource {
-            label: file.label,
-            path: file.path,
-            kind: EnvKind::Dotenv,
-        });
+    let dotenv = dotenv::find(dir, root).into_iter().map(|file| EnvSource {
+        label: file.label,
+        path: file.path,
+        kind: EnvKind::Dotenv,
+    });
     let bruno = bru::environments(dir, root)
         .into_iter()
         .map(|(label, path)| EnvSource {

@@ -167,7 +167,13 @@ fn walk(root: &Path, dir: &Path, visited: &mut HashSet<PathBuf>, out: &mut Vec<F
                     continue;
                 };
                 let location = relative(root, &entry.path);
-                postman_items(&collection.items, &entry.path, &location, &mut Vec::new(), out);
+                postman_items(
+                    &collection.items,
+                    &entry.path,
+                    &location,
+                    &mut Vec::new(),
+                    out,
+                );
             }
             EntryKind::OpenApi => {
                 let Ok(spec) = std::fs::read(&entry.path)
@@ -238,30 +244,58 @@ mod tests {
 
     fn collection() -> PathBuf {
         let root = testing::scratch("collection");
-        testing::write(&root.join("users").join("list.http"), "# list\nGET https://x/users\n");
-        testing::write(&root.join("users").join("create.bru"), "meta {\n  name: create\n}\n\npost {\n  url: https://x/users\n}\n");
+        testing::write(
+            &root.join("users").join("list.http"),
+            "# list\nGET https://x/users\n",
+        );
+        testing::write(
+            &root.join("users").join("create.bru"),
+            "meta {\n  name: create\n}\n\npost {\n  url: https://x/users\n}\n",
+        );
         testing::write(&root.join("query.graphql"), "query { me { id } }");
         testing::write(&root.join("notes.txt"), "not a request");
         testing::write(&root.join(".hidden.http"), "GET https://x");
-        testing::write(&root.join("openapi.yaml"), "openapi: 3.0.0\npaths:\n  /pets:\n    get:\n      tags: [pets]\n");
+        testing::write(
+            &root.join("openapi.yaml"),
+            "openapi: 3.0.0\npaths:\n  /pets:\n    get:\n      tags: [pets]\n",
+        );
         testing::write(&root.join("config.json"), "{\"name\": \"not a spec\"}");
         testing::write(
             &root.join("api.postman_collection.json"),
             r#"{"item":[{"name":"Auth","item":[{"name":"Login","request":{"method":"POST","url":"https://x/login"}}]}]}"#,
         );
-        testing::write(&root.join("bruno").join("collection.bru"), "vars {\n  a: 1\n}\n");
-        testing::write(&root.join("bruno").join("environments").join("dev.bru"), "vars {\n  a: 2\n}\n");
-        testing::write(&root.join("bruno").join("ping.bru"), "get {\n  url: https://x/ping\n}\n");
+        testing::write(
+            &root.join("bruno").join("collection.bru"),
+            "vars {\n  a: 1\n}\n",
+        );
+        testing::write(
+            &root.join("bruno").join("environments").join("dev.bru"),
+            "vars {\n  a: 2\n}\n",
+        );
+        testing::write(
+            &root.join("bruno").join("ping.bru"),
+            "get {\n  url: https://x/ping\n}\n",
+        );
         root
     }
 
     #[test]
     fn lists_what_binman_can_open_directories_first() {
         let root = collection();
-        let names: Vec<String> = list(&root).unwrap().into_iter().map(|entry| entry.name).collect();
+        let names: Vec<String> = list(&root)
+            .unwrap()
+            .into_iter()
+            .map(|entry| entry.name)
+            .collect();
         assert_eq!(
             names,
-            vec!["bruno", "users", "api.postman_collection.json", "openapi.yaml", "query.graphql"]
+            vec![
+                "bruno",
+                "users",
+                "api.postman_collection.json",
+                "openapi.yaml",
+                "query.graphql"
+            ]
         );
     }
 
@@ -279,8 +313,14 @@ mod tests {
     #[test]
     fn reads_a_method_without_parsing_the_file() {
         let root = collection();
-        assert_eq!(method_of(&root.join("users/list.http"), Format::Http).as_deref(), Some("GET"));
-        assert_eq!(method_of(&root.join("users/create.bru"), Format::Bru).as_deref(), Some("POST"));
+        assert_eq!(
+            method_of(&root.join("users/list.http"), Format::Http).as_deref(),
+            Some("GET")
+        );
+        assert_eq!(
+            method_of(&root.join("users/create.bru"), Format::Bru).as_deref(),
+            Some("POST")
+        );
     }
 
     #[test]
@@ -298,7 +338,9 @@ mod tests {
             ("POST", "create.bru", "users"),
             ("GET", "list.http", "users"),
         ]
-        .map(|(method, title, location)| (method.to_string(), title.to_string(), location.to_string()));
+        .map(|(method, title, location)| {
+            (method.to_string(), title.to_string(), location.to_string())
+        });
         assert_eq!(found, expected);
     }
 }

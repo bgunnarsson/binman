@@ -10,7 +10,9 @@ use std::time::Instant;
 use binman_core::body::{self, BodyKind};
 use binman_core::extract::{self, Rule};
 use binman_core::vars::{self, Scope, Vars};
-use binman_core::{AuthKind, EnvSource, Exchange, Loaded, METHODS, Origin, Prepared, Request, query};
+use binman_core::{
+    AuthKind, EnvSource, Exchange, Loaded, METHODS, Origin, Prepared, Request, query,
+};
 use ratatui::style::Style;
 use ratatui::text::Line;
 use tokio_util::sync::CancellationToken;
@@ -500,7 +502,9 @@ impl Tab {
 
     pub fn cycle_method(&mut self, delta: isize) {
         let next = match METHODS.iter().position(|method| *method == self.method) {
-            Some(position) => (position as isize + delta).rem_euclid(METHODS.len() as isize) as usize,
+            Some(position) => {
+                (position as isize + delta).rem_euclid(METHODS.len() as isize) as usize
+            }
             None => 0,
         };
         self.method = METHODS[next].to_string();
@@ -634,10 +638,16 @@ mod tests {
 
         let scope = tab.scope(&extracted);
         assert_eq!(scope.resolve(tab.url.text()), "https://env/users/42");
-        assert!(tab.overrides.is_empty(), "nothing is pinned by looking at it");
+        assert!(
+            tab.overrides.is_empty(),
+            "nothing is pinned by looking at it"
+        );
 
         tab.overrides.insert("ID".into(), "7".into());
-        assert_eq!(tab.scope(&extracted).resolve(tab.url.text()), "https://env/users/7");
+        assert_eq!(
+            tab.scope(&extracted).resolve(tab.url.text()),
+            "https://env/users/7"
+        );
     }
 
     #[test]

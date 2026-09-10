@@ -66,7 +66,11 @@ pub fn draw_url(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets)
     let sending = tab.is_sending();
     let button = if sending { " Cancel " } else { " Send " };
     let button_width = button.chars().count() as u16;
-    let button_spot = ui::spot(inner, inner.right().saturating_sub(button_width), button_width);
+    let button_spot = ui::spot(
+        inner,
+        inner.right().saturating_sub(button_width),
+        button_width,
+    );
     frame.render_widget(
         Paragraph::new(Span::styled(button, theme::send_button(sending))),
         button_spot,
@@ -79,9 +83,7 @@ pub fn draw_url(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets)
         ui::spot(inner, inner.x, method_width.saturating_sub(1)),
         Target::Method,
     );
-    let text_width = inner
-        .width
-        .saturating_sub(method_width + button_width + 1);
+    let text_width = inner.width.saturating_sub(method_width + button_width + 1);
     let start = if focused {
         tab.url.first_visible(text_width as usize)
     } else {
@@ -169,7 +171,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
         Section::Auth => Some(tab.auth.kind.label()),
         _ => None,
     };
-    let counter = kind.map_or_else(Vec::new, |label| vec![Span::styled(label, theme::counter())]);
+    let counter = kind.map_or_else(Vec::new, |label| {
+        vec![Span::styled(label, theme::counter())]
+    });
 
     let block = ui::tabbed_pane(sections, counter, focused);
     let inner = block.inner(area);
@@ -192,7 +196,14 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
     }
 
     match tab.section {
-        Section::Params => table(frame, &mut tab.params, inner, focused, "a parameter", targets),
+        Section::Params => table(
+            frame,
+            &mut tab.params,
+            inner,
+            focused,
+            "a parameter",
+            targets,
+        ),
         Section::Headers => table(frame, &mut tab.headers, inner, focused, "a header", targets),
         Section::Body => body(frame, tab, inner, focused, targets),
         Section::Auth => auth_section(frame, tab, inner, focused, targets),
@@ -354,7 +365,13 @@ fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &m
     }
 }
 
-fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &mut Targets) {
+fn auth_section(
+    frame: &mut Frame,
+    tab: &mut Tab,
+    area: Rect,
+    focused: bool,
+    targets: &mut Targets,
+) {
     frame.render_widget(
         Paragraph::new(kind_line(tab.auth.kind.label(), focused, None)),
         Rect { height: 1, ..area },
@@ -365,7 +382,10 @@ fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, tar
     let fields = tab.auth.kind.fields();
     if fields.is_empty() {
         frame.render_widget(
-            Paragraph::new(Span::styled("Nothing is added to the request.", theme::dim())),
+            Paragraph::new(Span::styled(
+                "Nothing is added to the request.",
+                theme::dim(),
+            )),
             content,
         );
         return;
@@ -429,7 +449,10 @@ fn vars_section(
     if names.is_empty() {
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from(Span::styled("No {{variables}} in this request.", theme::muted())),
+                Line::from(Span::styled(
+                    "No {{variables}} in this request.",
+                    theme::muted(),
+                )),
                 Line::from(Span::styled(
                     "Write {{NAME}} in the URL, a header or the body.",
                     theme::dim(),
@@ -445,7 +468,9 @@ fn vars_section(
         names
             .iter()
             .map(|name| {
-                let found = scope.lookup(name).map(|(value, layer)| (value.to_string(), layer));
+                let found = scope
+                    .lookup(name)
+                    .map(|(value, layer)| (value.to_string(), layer));
                 (name.clone(), found)
             })
             .collect()
@@ -464,11 +489,17 @@ fn vars_section(
 
     let mut lines = Vec::new();
     for (index, (name, found)) in rows.iter().enumerate().skip(tab.vars.offset).take(height) {
-        targets.add(ui::line_at(area, index - tab.vars.offset), Target::Row(index));
+        targets.add(
+            ui::line_at(area, index - tab.vars.offset),
+            Target::Row(index),
+        );
         let selected = index == tab.vars.selected;
         let mut spans = vec![
             ui::bar(selected, focused),
-            Span::styled(ui::pad(&ui::truncate(name, name_width), name_width), theme::header_name()),
+            Span::styled(
+                ui::pad(&ui::truncate(name, name_width), name_width),
+                theme::header_name(),
+            ),
             Span::raw("  "),
         ];
         match (&tab.vars.edit, found) {
@@ -498,7 +529,11 @@ fn vars_section(
 fn scripts(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &mut Targets) {
     targets.add(area, Target::Editor);
     let editing = tab.editing && focused;
-    let empty = tab.scripts.lines().iter().all(|line| line.trim().is_empty());
+    let empty = tab
+        .scripts
+        .lines()
+        .iter()
+        .all(|line| line.trim().is_empty());
     if empty && !editing {
         let example = |rule: &str| Line::from(Span::styled(format!("  {rule}"), theme::muted()));
         frame.render_widget(
@@ -552,7 +587,10 @@ fn info(
         None => "none".to_string(),
     };
     let rows = [
-        ("Source", source.unwrap_or_else(|| "not saved anywhere".into())),
+        (
+            "Source",
+            source.unwrap_or_else(|| "not saved anywhere".into()),
+        ),
         ("Environment", environment),
         (
             "Sends",

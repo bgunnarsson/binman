@@ -68,8 +68,11 @@ pub fn header(kind: AuthKind, values: &[String]) -> Option<(String, String)> {
             Some(("Authorization".into(), format!("Bearer {}", value(0))))
         }
         AuthKind::Basic if !(value(0).is_empty() && value(1).is_empty()) => {
-            let encoded = base64::engine::general_purpose::STANDARD
-                .encode(format!("{}:{}", value(0), value(1)));
+            let encoded = base64::engine::general_purpose::STANDARD.encode(format!(
+                "{}:{}",
+                value(0),
+                value(1)
+            ));
             Some(("Authorization".into(), format!("Basic {encoded}")))
         }
         AuthKind::ApiKey if !value(0).is_empty() => {
@@ -107,6 +110,9 @@ mod tests {
     fn empty_fields_add_nothing() {
         assert_eq!(header(AuthKind::Bearer, &values(&[""])), None);
         assert_eq!(header(AuthKind::Basic, &values(&["", ""])), None);
-        assert_eq!(header(AuthKind::ClientCredentials, &values(&["u", "i", "s", ""])), None);
+        assert_eq!(
+            header(AuthKind::ClientCredentials, &values(&["u", "i", "s", ""])),
+            None
+        );
     }
 }

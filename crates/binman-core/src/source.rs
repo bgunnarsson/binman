@@ -37,7 +37,9 @@ impl Origin {
     /// The file on disk.
     pub fn path(&self) -> &Path {
         match self {
-            Origin::File(path) | Origin::Postman { path, .. } | Origin::OpenApi { path, .. } => path,
+            Origin::File(path) | Origin::Postman { path, .. } | Origin::OpenApi { path, .. } => {
+                path
+            }
         }
     }
 
@@ -154,7 +156,10 @@ mod tests {
     #[test]
     fn a_bru_request_brings_its_collection_vars() {
         let root = testing::scratch("source-bru");
-        testing::write(&root.join("collection.bru"), "vars {\n  base: https://api\n}\n");
+        testing::write(
+            &root.join("collection.bru"),
+            "vars {\n  base: https://api\n}\n",
+        );
         let path = root.join("users").join("get.bru");
         testing::write(&path, "get {\n  url: {{base}}/users\n}\n");
 
@@ -181,7 +186,9 @@ mod tests {
             url: "https://x".into(),
             ..Request::default()
         };
-        Origin::File(http.clone()).save(&request, BodyKind::None).expect("saves");
+        Origin::File(http.clone())
+            .save(&request, BodyKind::None)
+            .expect("saves");
         assert_eq!(std::fs::read_to_string(http).unwrap(), "GET https://x\n");
     }
 }
