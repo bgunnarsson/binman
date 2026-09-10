@@ -419,6 +419,59 @@ impl Tree {
         }
     }
 
+    /// Opens the directories down to a file just written and selects it.
+    /// Each is read again on the way, since the file — and maybe the
+    /// directory — was not there when it was last read, and what was already
+    /// open under each stays open.
+    pub fn reveal(&mut self, path: &Path) {
+        let Some(relative) = path
+            .parent()
+            .and_then(|parent| parent.strip_prefix(&self.root).ok())
+        else {
+            return;
+        };
+        let mut dir = self.root.clone();
+        let fresh = self.list(&dir);
+        let kept = std::mem::take(&mut self.roots);
+        self.roots = merge(kept, fresh);
+
+        let mut parent = None;
+        for component in relative.components() {
+            dir.push(component);
+            let siblings = match parent.and_then(|id| self.find(id)) {
+                Some(node) => &node.children,
+                None => &self.roots,
+            };
+            let Some(id) = siblings
+                .iter()
+                .find(|node| matches!(&node.kind, NodeKind::Dir { path, .. } if *path == dir))
+                .map(|node| node.id)
+            else {
+                return;
+            };
+            let fresh = self.list(&dir);
+            if let Some(node) = self.find_mut(id) {
+                let kept = std::mem::take(&mut node.children);
+                node.children = merge(kept, fresh);
+                node.state = LoadState::Loaded;
+                node.expanded = true;
+            }
+            parent = Some(id);
+        }
+
+        let siblings = match parent.and_then(|id| self.find(id)) {
+            Some(node) => &node.children,
+            None => &self.roots,
+        };
+        if let Some(id) = siblings
+            .iter()
+            .find(|node| matches!(&node.kind, NodeKind::File { path: file, .. } if file == path))
+            .map(|node| node.id)
+        {
+            self.select_id(id);
+        }
+    }
+
     /// Reads the selected node again from disk — or, for a request, the
     /// directory it sits in, since that is where a new file would appear. The
     /// top level is read again when nothing narrower applies.
@@ -457,6 +510,27 @@ impl Tree {
             _ => String::new(),
         }
     }
+}
+
+/// A directory as just read, with each subdirectory that was already there
+/// kept as it was — open, with its children — so reading it again adds what
+/// is new without closing everything under it.
+fn merge(mut kept: Vec<Node>, fresh: Vec<Node>) -> Vec<Node> {
+    fresh
+        .into_iter()
+        .map(|node| {
+            let NodeKind::Dir { path, .. } = &node.kind else {
+                return node;
+            };
+            match kept
+                .iter()
+                .position(|old| matches!(&old.kind, NodeKind::Dir { path: old, .. } if old == path))
+            {
+                Some(index) => kept.swap_remove(index),
+                None => node,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

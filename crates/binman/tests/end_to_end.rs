@@ -14,8 +14,8 @@ use binman::app::tab::{Outcome, Section, View};
 use binman::app::tree::NodeKind;
 use binman::app::{App, Message, Pane};
 use binman::ui;
-use binman_core::Client;
 use binman_core::history::History;
+use binman_core::{Client, Origin};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -477,6 +477,101 @@ async fn saving_writes_the_request_back_to_its_file() {
         "GET https://old.example.com/users?page=2\n"
     );
     assert!(!app.tab().is_dirty());
+}
+
+#[tokio::test]
+async fn a_request_with_no_file_is_saved_where_it_is_asked_to_be() {
+    let root = collection("save-new");
+    write(
+        &root.join("users").join("list.http"),
+        "GET https://x/users\n",
+    );
+    let (mut app, _messages) = app(&root);
+    select(&mut app, "users");
+    press(&mut app, KeyCode::Char('l'));
+
+    alt(&mut app, 'k');
+    typed(&mut app, "https://example.com/users/42");
+    ctrl(&mut app, 's');
+    let screen = render(&mut app);
+    println!("\n{screen}\n");
+    assert!(screen.contains("Save the request to"), "{screen}");
+
+    ctrl(&mut app, 'u');
+    typed(&mut app, "users/get");
+    press(&mut app, KeyCode::Enter);
+
+    let path = root.join("users").join("get.http");
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "GET https://example.com/users/42\n"
+    );
+    assert!(app.overlay.is_none());
+    assert_eq!(app.tab().title, "get.http");
+    assert_eq!(app.tab().origin, Some(Origin::File(path.clone())));
+    assert!(!app.tab().is_dirty());
+    assert_eq!(selected_name(&app), "get.http", "the tree shows the file");
+    let screen = render(&mut app);
+    assert!(
+        screen.contains("list.http"),
+        "the folder stays open:\n{screen}"
+    );
+
+    // The tab has a file now, so ⌃S writes to it without asking.
+    alt(&mut app, 'k');
+    typed(&mut app, "?v=2");
+    ctrl(&mut app, 's');
+    assert!(app.overlay.is_none());
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "GET https://example.com/users/42?v=2\n"
+    );
+}
+
+#[tokio::test]
+async fn a_new_file_goes_nowhere_it_should_not() {
+    let root = collection("save-refused");
+    write(&root.join("a.http"), "GET https://a\n");
+    let (mut app, _messages) = app(&root);
+    alt(&mut app, 'k');
+    typed(&mut app, "https://b");
+    ctrl(&mut app, 's');
+
+    ctrl(&mut app, 'u');
+    typed(&mut app, "a.http");
+    press(&mut app, KeyCode::Enter);
+    let screen = render(&mut app);
+    assert!(screen.contains("a.http is already there"), "{screen}");
+
+    let error = |app: &App| match &app.overlay {
+        Some(Overlay::SaveRequest(prompt)) => prompt.error.clone().unwrap_or_default(),
+        _ => panic!("the prompt closed"),
+    };
+    for (name, complaint) in [
+        ("../outside", "outside the collections"),
+        ("q.graphql", "does not write them"),
+        ("users/.hidden", "would be hidden"),
+    ] {
+        ctrl(&mut app, 'u');
+        typed(&mut app, name);
+        press(&mut app, KeyCode::Enter);
+        assert!(error(&app).contains(complaint), "{name}: {}", error(&app));
+    }
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.http")).unwrap(),
+        "GET https://a\n"
+    );
+    assert!(!root.parent().unwrap().join("outside.http").exists());
+
+    ctrl(&mut app, 'u');
+    typed(&mut app, "b.bru");
+    press(&mut app, KeyCode::Enter);
+    let saved =
+        binman_core::formats::bru::parse(&std::fs::read_to_string(root.join("b.bru")).unwrap());
+    assert_eq!(
+        (saved.method.as_str(), saved.url.as_str()),
+        ("GET", "https://b")
+    );
 }
 
 #[tokio::test]

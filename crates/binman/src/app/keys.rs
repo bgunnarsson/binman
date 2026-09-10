@@ -402,6 +402,15 @@ fn overlay(app: &mut App, key: KeyEvent) {
             }
         },
 
+        Some(Overlay::SaveRequest(prompt)) => match key.code {
+            KeyCode::Esc => app.overlay = None,
+            KeyCode::Enter => app.save_request_as(),
+            _ => {
+                prompt.input.handle(key);
+                prompt.error = None;
+            }
+        },
+
         Some(Overlay::SaveResponse(prompt)) => match key.code {
             KeyCode::Esc => app.overlay = None,
             KeyCode::Enter => app.save_response(),

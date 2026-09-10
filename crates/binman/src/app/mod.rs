@@ -6,13 +6,13 @@ pub mod overlay;
 pub mod tab;
 pub mod tree;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use binman_core::body::{self, BodyKind};
 use binman_core::extract::{self, Rule};
-use binman_core::formats::curl;
+use binman_core::formats::{bru, curl};
 use binman_core::history::{self, History};
 use binman_core::oauth2::Grant;
 use binman_core::request::{header, set_header};
@@ -486,13 +486,26 @@ impl App {
         }
     }
 
+    /// Writes the request back to its file, or asks where to put it when it
+    /// has none.
     pub fn save_request(&mut self) {
-        let tab = self.tab_mut();
-        tab.commit_edits();
-        let Some(origin) = tab.origin.clone() else {
-            self.warn("This request has no file to save to");
+        self.tab_mut().commit_edits();
+        let Some(origin) = self.tab().origin.clone() else {
+            self.open_save_request();
             return;
         };
+        match self.write_request(&origin) {
+            Ok(()) => {
+                self.tab_mut().mark_saved();
+                let name = collection::relative(&self.root, origin.path());
+                self.success(format!("Saved {name}"));
+            }
+            Err(error) => self.error(error.to_string()),
+        }
+    }
+
+    fn write_request(&self, origin: &Origin) -> Result<(), Error> {
+        let tab = self.tab();
         let kind = tab.body_kind;
         let mut request = tab.request();
         // A .http file says what its body is only through Content-Type, so
@@ -505,15 +518,126 @@ impl App {
                 .headers
                 .push(("Content-Type".into(), content_type.into()));
         }
+        origin.save(&request, kind)
+    }
 
-        match origin.save(&request, kind) {
-            Ok(()) => {
-                self.tab_mut().mark_saved();
-                let name = collection::relative(&self.root, origin.path());
-                self.success(format!("Saved {name}"));
+    /// Asks where to write a request that came from nowhere on disk: a new
+    /// tab, or one sent again from the history.
+    pub fn open_save_request(&mut self) {
+        let suggested = self.root.join("request.http");
+        self.overlay = Some(Overlay::SaveRequest(SavePrompt {
+            input: LineInput::new(suggested.display().to_string()),
+            error: None,
+        }));
+    }
+
+    /// Writes the request where the prompt says and ties the tab to that
+    /// file, so the next ⌃S writes there without asking.
+    pub fn save_request_as(&mut self) {
+        let Some(Overlay::SaveRequest(prompt)) = &self.overlay else {
+            return;
+        };
+        let written = self.new_file(prompt.input.text().trim()).and_then(|path| {
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir)
+                    .map_err(|error| format!("{}: {error}", dir.display()))?;
             }
-            Err(error) => self.error(error.to_string()),
+            let origin = Origin::File(path);
+            self.write_request(&origin)
+                .map_err(|error| error.to_string())?;
+            Ok(origin)
+        });
+        let origin = match written {
+            Ok(origin) => origin,
+            Err(message) => {
+                if let Some(Overlay::SaveRequest(prompt)) = &mut self.overlay {
+                    prompt.error = Some(message);
+                }
+                return;
+            }
+        };
+
+        let envs = env::discover(origin.dir(), &self.root);
+        let env = self.choose_env(&envs);
+        let collection_vars = if origin.savable() == Some(Format::Bru) {
+            bru::collection_vars(origin.dir(), &self.root)
+        } else {
+            Vars::new()
+        };
+        let name = collection::relative(&self.root, origin.path());
+        self.tree.reveal(origin.path());
+
+        let tab = self.tab_mut();
+        tab.title = origin
+            .path()
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        tab.collection_vars = collection_vars;
+        tab.envs = envs;
+        tab.env = env;
+        tab.origin = Some(origin);
+        tab.mark_saved();
+        let loaded = tab.reload_env();
+        self.overlay = None;
+        match loaded {
+            Ok(()) => self.success(format!("Saved {name}")),
+            Err(error) => self.warn(error),
         }
+    }
+
+    /// Where a typed name puts a new request file. A name that is neither
+    /// `.http` nor `.bru` gets `.http` added to it, and nothing is written
+    /// over a file that is already there.
+    fn new_file(&self, typed: &str) -> Result<PathBuf, String> {
+        if typed.is_empty() {
+            return Err("Type where to save it".into());
+        }
+        let typed = PathBuf::from(typed);
+        let mut path = if typed.is_absolute() {
+            typed
+        } else {
+            self.root.join(typed)
+        };
+        match Format::of(&path) {
+            Some(Format::Http | Format::Bru) => {}
+            Some(Format::Graphql) => {
+                return Err(
+                    "binman reads .graphql files but does not write them — end the name in .http or .bru"
+                        .into(),
+                );
+            }
+            None => {
+                let mut name = path.into_os_string();
+                name.push(".http");
+                path = PathBuf::from(name);
+            }
+        }
+
+        // `..` is refused rather than followed: the file is not there yet, so
+        // there is nothing to canonicalize and see where it really lands.
+        if path.components().any(|part| part == Component::ParentDir)
+            || !path.starts_with(&self.root)
+        {
+            return Err(format!(
+                "{} is outside the collections in {}",
+                path.display(),
+                self.root.display()
+            ));
+        }
+        let name = collection::relative(&self.root, &path);
+        if path
+            .file_name()
+            .is_some_and(|file| file.to_string_lossy().starts_with('.'))
+        {
+            return Err(format!(
+                "{name} would be hidden — the tree leaves out names that start with a dot"
+            ));
+        }
+        if path.exists() {
+            return Err(format!("{name} is already there"));
+        }
+        Ok(path)
     }
 
     pub fn open_save_response(&mut self) {
@@ -619,7 +743,7 @@ impl App {
     // --- pickers ---
 
     /// Builds the palette from what can be done right now: Cancel only while
-    /// something is running, Save only for a request that has a file.
+    /// something is running, Save only for a request that can be saved.
     pub fn open_palette(&mut self) {
         let tab = self.tab();
         let mut commands = vec![Command::Send];
@@ -637,8 +761,10 @@ impl App {
             commands.push(Command::EditEnv);
         }
         commands.push(Command::CopyCurl);
-        if tab.origin.as_ref().and_then(Origin::savable).is_some() {
-            commands.push(Command::Save);
+        match &tab.origin {
+            None => commands.push(Command::SaveAs),
+            Some(origin) if origin.savable().is_some() => commands.push(Command::Save),
+            Some(_) => {}
         }
         if tab.response.received().is_some() {
             commands.push(Command::SaveResponse);
@@ -770,7 +896,7 @@ impl App {
             Command::Environments => self.open_envs(),
             Command::EditEnv => self.edit_env(None),
             Command::CopyCurl => self.copy_curl(),
-            Command::Save => self.save_request(),
+            Command::Save | Command::SaveAs => self.save_request(),
             Command::SaveResponse => self.open_save_response(),
             Command::Reload => self.reload_tree(),
             Command::Help => self.overlay = Some(Overlay::Help),
@@ -875,7 +1001,9 @@ impl App {
                     picker.push(ch);
                 }
             }
-            Some(Overlay::SaveResponse(prompt)) => prompt.input.paste(text),
+            Some(Overlay::SaveRequest(prompt) | Overlay::SaveResponse(prompt)) => {
+                prompt.input.paste(text);
+            }
             Some(Overlay::Env(editor)) => {
                 editor.editor.insert_str(text);
             }

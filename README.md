@@ -53,6 +53,11 @@ first. Hidden files are skipped, and a file that does not parse shows its error
 in the tree. Only `.http` and `.bru` requests can be saved; the others can be
 edited and sent.
 
+A tab with no file — a new tab, or a request sent again from the history — asks
+where to save it. The path has to be under `HTTP_FILES`, and the file is written
+as `.http` unless the name ends in `.bru`. Nothing is written over a file that
+is already there, and from then on `⌃S` saves to the new file.
+
 ### `.http`
 
 ```http
@@ -229,7 +234,6 @@ rendered screen.
 ## Not done yet
 
 - A command mode for scripts, such as `binman send`.
-- Saving a request that has no file, such as a new tab or a history replay.
 - Reading or writing auth settings in request files.
 - The Homebrew tap has not been updated for this version.
 
