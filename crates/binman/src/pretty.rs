@@ -121,7 +121,9 @@ impl Printer {
                 ch if ch.is_whitespace() => {}
                 _ => {
                     let end = (index..chars.len())
-                        .find(|&at| matches!(chars[at], ',' | '}' | ']' | ':') || chars[at].is_whitespace())
+                        .find(|&at| {
+                            matches!(chars[at], ',' | '}' | ']' | ':') || chars[at].is_whitespace()
+                        })
                         .unwrap_or(chars.len());
                     let word: String = chars[index..end].iter().collect();
                     let style = match word.as_str() {
@@ -171,13 +173,20 @@ mod tests {
     fn text(lines: &[Line<'_>]) -> Vec<String> {
         lines
             .iter()
-            .map(|line| line.spans.iter().map(|span| span.content.as_ref()).collect())
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            })
             .collect()
     }
 
     #[test]
     fn reindents_without_reordering_or_reformatting() {
-        let lines = render(r#"{"zeta":1.0,"alpha":[true,null],"id":12345678901234567890,"empty":{},"s":"a\"b"}"#);
+        let lines = render(
+            r#"{"zeta":1.0,"alpha":[true,null],"id":12345678901234567890,"empty":{},"s":"a\"b"}"#,
+        );
         assert_eq!(
             text(&lines),
             vec![
@@ -199,15 +208,24 @@ mod tests {
     fn keys_and_values_are_told_apart() {
         let lines = render(r#"{"name":"Jane"}"#);
         let spans = &lines[1].spans;
-        let key = spans.iter().find(|span| span.content == "\"name\"").unwrap();
-        let value = spans.iter().find(|span| span.content == "\"Jane\"").unwrap();
+        let key = spans
+            .iter()
+            .find(|span| span.content == "\"name\"")
+            .unwrap();
+        let value = spans
+            .iter()
+            .find(|span| span.content == "\"Jane\"")
+            .unwrap();
         assert_eq!(key.style, theme::json_key());
         assert_eq!(value.style, theme::json_string());
     }
 
     #[test]
     fn what_is_not_json_is_shown_as_it_came() {
-        assert_eq!(text(&render("<html>\n\t<b>hi</b>\r\n</html>")), vec!["<html>", "    <b>hi</b>", "</html>"]);
+        assert_eq!(
+            text(&render("<html>\n\t<b>hi</b>\r\n</html>")),
+            vec!["<html>", "    <b>hi</b>", "</html>"]
+        );
         assert_eq!(text(&render("{not json")), vec!["{not json"]);
     }
 }

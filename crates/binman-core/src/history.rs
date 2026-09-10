@@ -116,7 +116,11 @@ mod tests {
 
     #[test]
     fn appends_and_reads_back_in_order() {
-        let history = History::at(testing::scratch("history").join("state").join("history.jsonl"));
+        let history = History::at(
+            testing::scratch("history")
+                .join("state")
+                .join("history.jsonl"),
+        );
         for status in [200, 201, 404] {
             history
                 .append(&Entry::new(

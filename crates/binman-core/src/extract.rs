@@ -75,15 +75,17 @@ pub fn apply(rules: &[Rule], body: &str, headers: &[(String, String)]) -> Vars {
                 let root = json.get_or_insert_with(|| serde_json::from_str(body).ok());
                 root.as_ref().and_then(|root| walk(root, path))
             }
-            Source::Regex(pattern) => Regex::new(pattern.trim_matches('/'))
-                .ok()
-                .and_then(|regex| {
-                    let captures = regex.captures(body)?;
-                    captures
-                        .get(1)
-                        .or_else(|| captures.get(0))
-                        .map(|found| found.as_str().to_string())
-                }),
+            Source::Regex(pattern) => {
+                Regex::new(pattern.trim_matches('/'))
+                    .ok()
+                    .and_then(|regex| {
+                        let captures = regex.captures(body)?;
+                        captures
+                            .get(1)
+                            .or_else(|| captures.get(0))
+                            .map(|found| found.as_str().to_string())
+                    })
+            }
             Source::Header(name) => header(headers, name)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
@@ -160,7 +162,11 @@ mod tests {
 
     #[test]
     fn a_regex_takes_its_first_group() {
-        let out = apply(&parse("ID = regex /id=(\\d+)/"), "user id=4711 something", &[]);
+        let out = apply(
+            &parse("ID = regex /id=(\\d+)/"),
+            "user id=4711 something",
+            &[],
+        );
         assert_eq!(out["ID"], "4711");
     }
 

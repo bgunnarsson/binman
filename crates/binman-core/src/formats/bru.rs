@@ -316,9 +316,17 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
     let mut cursor = 0;
     let mut body_written = false;
     for (index, block) in blocks.iter().enumerate() {
-        out.extend(lines[cursor..block.start].iter().map(|line| line.to_string()));
+        out.extend(
+            lines[cursor..block.start]
+                .iter()
+                .map(|line| line.to_string()),
+        );
         cursor = block.end + 1;
-        let verbatim = || lines[block.start..=block.end].iter().map(|line| line.to_string());
+        let verbatim = || {
+            lines[block.start..=block.end]
+                .iter()
+                .map(|line| line.to_string())
+        };
         let name = block.name.to_ascii_lowercase();
 
         if Some(index) == method_index {
@@ -333,7 +341,10 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
                 body_written = true;
             }
         } else if name == "headers" {
-            let disabled = block.lines.iter().any(|line| line.trim_start().starts_with('~'));
+            let disabled = block
+                .lines
+                .iter()
+                .any(|line| line.trim_start().starts_with('~'));
             if !headers_changed {
                 out.extend(verbatim());
             } else if request.headers.is_empty() && !disabled {
@@ -354,7 +365,11 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
             out.extend(verbatim());
         }
     }
-    out.extend(lines[cursor.min(lines.len())..].iter().map(|line| line.to_string()));
+    out.extend(
+        lines[cursor.min(lines.len())..]
+            .iter()
+            .map(|line| line.to_string()),
+    );
     out.join("\n")
 }
 
@@ -417,7 +432,11 @@ fn method_block(
 /// binman's: they are carried over from the original block untouched.
 fn headers_block(headers: &[(String, String)], original: &[&str]) -> Vec<String> {
     let mut out = vec!["headers {".to_string()];
-    out.extend(headers.iter().map(|(name, value)| format!("  {name}: {value}")));
+    out.extend(
+        headers
+            .iter()
+            .map(|(name, value)| format!("  {name}: {value}")),
+    );
     out.extend(
         original
             .iter()
@@ -508,7 +527,11 @@ docs {
         );
         assert_eq!(request.vars["trace"], "abc");
         assert_eq!(request.kind, Some(BodyKind::Json));
-        assert!(request.body.starts_with("{\n  \"name\": {"), "{}", request.body);
+        assert!(
+            request.body.starts_with("{\n  \"name\": {"),
+            "{}",
+            request.body
+        );
     }
 
     #[test]
@@ -558,9 +581,19 @@ docs {
         request.headers.retain(|(name, _)| name != "Authorization");
         let saved = update(CREATE, &request, BodyKind::Json);
 
-        assert!(saved.contains("  url: https://example.com/v2/users"), "{saved}");
+        assert!(
+            saved.contains("  url: https://example.com/v2/users"),
+            "{saved}"
+        );
         assert!(!saved.contains("Bearer abc"), "{saved}");
-        for kept in ["name: create user", "~X-Debug: 1", "trace: abc", "Returns 201.", "auth: none", "\"first\": \"Jane\""] {
+        for kept in [
+            "name: create user",
+            "~X-Debug: 1",
+            "trace: abc",
+            "Returns 201.",
+            "auth: none",
+            "\"first\": \"Jane\"",
+        ] {
             assert!(saved.contains(kept), "{kept} was lost:\n{saved}");
         }
         let again = parse(&saved);
@@ -597,7 +630,9 @@ docs {
 
     #[test]
     fn vars_blocks_merge_and_skip_disabled_entries() {
-        let vars = vars_blocks("vars {\n  a: 1\n  b: 2\n  ~c: 3\n}\n\nvars:secret [\n  token\n]\n\nvars:pre-request {\n  d: 4\n}\n");
+        let vars = vars_blocks(
+            "vars {\n  a: 1\n  b: 2\n  ~c: 3\n}\n\nvars:secret [\n  token\n]\n\nvars:pre-request {\n  d: 4\n}\n",
+        );
         assert_eq!(vars.len(), 3, "{vars:?}");
         assert_eq!(vars["d"], "4");
     }
@@ -622,8 +657,14 @@ docs {
     fn finds_the_environments_directory_above() {
         let root = testing::scratch("bru-environments");
         let collection = root.join("coll");
-        testing::write(&collection.join("environments").join("prod.bru"), "vars {\n  host: prod\n}\n");
-        testing::write(&collection.join("environments").join("dev.bru"), "vars {\n  host: dev\n}\n");
+        testing::write(
+            &collection.join("environments").join("prod.bru"),
+            "vars {\n  host: prod\n}\n",
+        );
+        testing::write(
+            &collection.join("environments").join("dev.bru"),
+            "vars {\n  host: dev\n}\n",
+        );
         std::fs::create_dir_all(collection.join("auth")).unwrap();
 
         let found = environments(&collection.join("auth"), &root);

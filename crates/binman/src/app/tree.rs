@@ -151,10 +151,7 @@ impl Tree {
 
     fn list(&mut self, dir: &Path) -> Vec<Node> {
         match collection::list(dir) {
-            Ok(entries) => entries
-                .into_iter()
-                .map(|entry| self.entry(entry))
-                .collect(),
+            Ok(entries) => entries.into_iter().map(|entry| self.entry(entry)).collect(),
             Err(error) => vec![self.note(error.to_string(), true)],
         }
     }
@@ -211,7 +208,12 @@ impl Tree {
 
     /// A collection's folders start open, as they did in v1: a collection is
     /// opened to see its requests, not to open it again one folder at a time.
-    fn postman(&mut self, path: &Path, items: &[postman::Item], trail: &mut Vec<usize>) -> Vec<Node> {
+    fn postman(
+        &mut self,
+        path: &Path,
+        items: &[postman::Item],
+        trail: &mut Vec<usize>,
+    ) -> Vec<Node> {
         let mut out = Vec::with_capacity(items.len());
         for (index, item) in items.iter().enumerate() {
             trail.push(index);
@@ -424,7 +426,9 @@ impl Tree {
         let mut target = self.selected_id();
         while let Some(id) = target {
             match self.find(id).map(|node| &node.kind) {
-                Some(NodeKind::Dir { .. } | NodeKind::Collection { .. } | NodeKind::Spec { .. }) => break,
+                Some(
+                    NodeKind::Dir { .. } | NodeKind::Collection { .. } | NodeKind::Spec { .. },
+                ) => break,
                 _ => target = self.parent_of(id),
             }
         }
@@ -498,7 +502,10 @@ mod tests {
 
         let users = tree.visible()[0].id;
         tree.toggle(users);
-        assert_eq!(names(&tree), vec!["users", "list.http", "api.postman_collection.json"]);
+        assert_eq!(
+            names(&tree),
+            vec!["users", "list.http", "api.postman_collection.json"]
+        );
         assert!(tree.find(tree.visible()[1].id).unwrap().origin().is_some());
     }
 

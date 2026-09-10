@@ -146,8 +146,13 @@ impl Picker {
                 needle.is_empty()
                     || is_subsequence(
                         &needle,
-                        &format!("{} {} {}", entry.method.as_deref().unwrap_or(""), entry.label, entry.detail)
-                            .to_lowercase(),
+                        &format!(
+                            "{} {} {}",
+                            entry.method.as_deref().unwrap_or(""),
+                            entry.label,
+                            entry.detail
+                        )
+                        .to_lowercase(),
                     )
             })
             .map(|(index, _)| index)

@@ -36,7 +36,9 @@ impl Request {
 
 /// Whether `text` names one of the methods binman offers, in any case.
 pub fn is_method(text: &str) -> bool {
-    METHODS.iter().any(|method| method.eq_ignore_ascii_case(text))
+    METHODS
+        .iter()
+        .any(|method| method.eq_ignore_ascii_case(text))
 }
 
 /// A header's value. Header names are case-insensitive on the wire, so they

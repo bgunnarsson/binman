@@ -172,7 +172,11 @@ impl Spec {
     /// Where the API lives. The first server when it names a host; otherwise
     /// `{{URL}}`, so an environment can say where.
     fn base(&self) -> String {
-        if let Some(url) = self.servers.first().and_then(|server| server.url.as_deref()) {
+        if let Some(url) = self
+            .servers
+            .first()
+            .and_then(|server| server.url.as_deref())
+        {
             let url = url.trim_end_matches('/');
             return if url.contains("://") {
                 url.to_string()
@@ -180,7 +184,11 @@ impl Spec {
                 format!("{{{{URL}}}}{url}")
             };
         }
-        let base_path = self.base_path.as_deref().unwrap_or("").trim_end_matches('/');
+        let base_path = self
+            .base_path
+            .as_deref()
+            .unwrap_or("")
+            .trim_end_matches('/');
         match &self.host {
             Some(host) => {
                 let scheme = self.schemes.first().map(String::as_str).unwrap_or("https");
@@ -223,7 +231,12 @@ pub fn request(spec: &Spec, route: &str, method: &str) -> Request {
         let Some(name) = parameter.name.as_deref() else {
             continue;
         };
-        match parameter.location.as_deref().map(str::to_ascii_lowercase).as_deref() {
+        match parameter
+            .location
+            .as_deref()
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
             Some("query") => query.push(format!("{name}=")),
             Some("header") => request.headers.push((name.to_string(), String::new())),
             Some("body") => body_parameter = true,
@@ -317,7 +330,10 @@ paths:
         let spec = parse(JSON.as_bytes(), "demo.json").expect("parses");
         let request = request(&spec, "/users/{id}", "get");
         assert_eq!(request.method, "GET");
-        assert_eq!(request.url, "https://api.example.com/v1/users/{{id}}?verbose=");
+        assert_eq!(
+            request.url,
+            "https://api.example.com/v1/users/{{id}}?verbose="
+        );
         assert_eq!(request.header("X-Trace"), Some(""));
 
         let update = super::request(&spec, "/users/{id}", "PUT");

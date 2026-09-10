@@ -197,7 +197,10 @@ mod tests {
             Some(DEFAULT_TIMEOUT)
         );
         assert_eq!(parse("HTTP_FILES = /x\nTIMEOUT = 0").unwrap().timeout, None);
-        assert_eq!(parse("HTTP_FILES = /x\nTIMEOUT = 0s").unwrap().timeout, None);
+        assert_eq!(
+            parse("HTTP_FILES = /x\nTIMEOUT = 0s").unwrap().timeout,
+            None
+        );
     }
 
     #[test]

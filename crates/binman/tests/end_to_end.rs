@@ -199,10 +199,9 @@ fn section(app: &mut App, target: Section) {
 
 #[tokio::test]
 async fn opens_a_request_and_shows_its_response() {
-    let server = serve(|_, _| {
-        Reply::json(200, r#"{"artists":[{"name":"Portishead","founded":1991}]}"#)
-    })
-    .await;
+    let server =
+        serve(|_, _| Reply::json(200, r#"{"artists":[{"name":"Portishead","founded":1991}]}"#))
+            .await;
     let root = collection("send");
     write(&root.join(".env"), &format!("BASE={}\n", server.url));
     write(
@@ -220,18 +219,33 @@ async fn opens_a_request_and_shows_its_response() {
     // is the environment picker, and the URL bar says where the request goes.
     let screen = render(&mut app);
     let header = screen.lines().next().unwrap().to_string();
-    assert!(header.contains("binman") && !header.contains("list.http"), "{header}");
-    assert!(header.ends_with("default ▾"), "the environment picker: {header}");
-    assert!(screen.lines().nth(1).unwrap().contains("list.http"), "{screen}");
+    assert!(
+        header.contains("binman") && !header.contains("list.http"),
+        "{header}"
+    );
+    assert!(
+        header.ends_with("default ▾"),
+        "the environment picker: {header}"
+    );
+    assert!(
+        screen.lines().nth(1).unwrap().contains("list.http"),
+        "{screen}"
+    );
     let url_bar = url_bar(&screen);
-    assert!(url_bar.contains("http://127.0.0.1"), "the host it resolves to: {url_bar}");
+    assert!(
+        url_bar.contains("http://127.0.0.1"),
+        "the host it resolves to: {url_bar}"
+    );
 
     ctrl(&mut app, 'r');
     settle(&mut app, &mut messages).await;
 
     let screen = render(&mut app);
     println!("\n{screen}\n");
-    assert!(screen.contains("200 OK"), "the status is missing:\n{screen}");
+    assert!(
+        screen.contains("200 OK"),
+        "the status is missing:\n{screen}"
+    );
     assert!(
         screen.contains("\"name\": \"Portishead\""),
         "the JSON should be re-indented:\n{screen}"
@@ -249,13 +263,19 @@ async fn the_chosen_environment_decides_where_requests_go() {
     let second = serve(|_, _| Reply::new(200).body("second")).await;
     let root = collection("envs");
     write(&root.join(".env"), &format!("BASE={}\n", first.url));
-    write(&root.join(".env.staging"), &format!("BASE={}\n", second.url));
+    write(
+        &root.join(".env.staging"),
+        &format!("BASE={}\n", second.url),
+    );
     write(&root.join("ping.http"), "GET {{BASE}}/ping\n");
     write(&root.join("other.http"), "GET {{BASE}}/other\n");
 
     let (mut app, mut messages) = app(&root);
     open(&mut app, "ping.http");
-    assert_eq!(app.tab().env_source().map(|s| s.label.as_str()), Some("default"));
+    assert_eq!(
+        app.tab().env_source().map(|s| s.label.as_str()),
+        Some("default")
+    );
 
     ctrl(&mut app, 'e');
     let screen = render(&mut app);
@@ -274,7 +294,10 @@ async fn the_chosen_environment_decides_where_requests_go() {
 
     // The choice carries to the next request opened.
     open(&mut app, "other.http");
-    assert_eq!(app.tab().env_source().map(|s| s.label.as_str()), Some("staging"));
+    assert_eq!(
+        app.tab().env_source().map(|s| s.label.as_str()),
+        Some("staging")
+    );
 }
 
 #[tokio::test]
@@ -300,7 +323,10 @@ async fn a_token_extracted_later_reaches_a_request_opened_earlier() {
     section(&mut app, Section::Vars);
     let screen = render(&mut app);
     assert!(screen.contains("token"), "{screen}");
-    assert!(screen.contains("not set"), "nothing defines the token yet:\n{screen}");
+    assert!(
+        screen.contains("not set"),
+        "nothing defines the token yet:\n{screen}"
+    );
 
     // Log in from a second tab, pulling the token out of the response.
     ctrl(&mut app, 't');
@@ -312,13 +338,19 @@ async fn a_token_extracted_later_reaches_a_request_opened_earlier() {
     press(&mut app, KeyCode::Esc);
     ctrl(&mut app, 'r');
     settle(&mut app, &mut messages).await;
-    assert_eq!(app.extracted.get("token").map(String::as_str), Some("tok-1"));
+    assert_eq!(
+        app.extracted.get("token").map(String::as_str),
+        Some("tok-1")
+    );
 
     // Back in the first tab, the token that did not exist when it was opened
     // is the one it sends.
     alt(&mut app, '1');
     let screen = render(&mut app);
-    assert!(screen.contains("extracted"), "the Vars section names the layer:\n{screen}");
+    assert!(
+        screen.contains("extracted"),
+        "the Vars section names the layer:\n{screen}"
+    );
     ctrl(&mut app, 'r');
     settle(&mut app, &mut messages).await;
     assert_eq!(
@@ -375,7 +407,10 @@ async fn a_variable_being_typed_into_looks_like_a_field() {
 
     press(&mut app, KeyCode::Enter);
     let typing = colours(&mut app);
-    assert!(typing.contains(&caret), "the caret shows on the selected row");
+    assert!(
+        typing.contains(&caret),
+        "the caret shows on the selected row"
+    );
     assert!(
         typing.iter().filter(|colour| **colour == well).count() > 10,
         "the value sits in a field"
@@ -427,8 +462,14 @@ async fn saving_writes_the_request_back_to_its_file() {
     press(&mut app, KeyCode::End);
     typed(&mut app, "?page=2");
     assert!(app.tab().is_dirty());
-    assert!(render(&mut app).contains("list.http •"), "the tab shows it has edits");
-    assert_eq!(app.tab().params.rows, vec![("page".to_string(), "2".to_string())]);
+    assert!(
+        render(&mut app).contains("list.http •"),
+        "the tab shows it has edits"
+    );
+    assert_eq!(
+        app.tab().params.rows,
+        vec![("page".to_string(), "2".to_string())]
+    );
 
     ctrl(&mut app, 's');
     assert_eq!(
@@ -442,15 +483,24 @@ async fn saving_writes_the_request_back_to_its_file() {
 async fn ctrl_c_cancels_a_request_in_flight() {
     let server = serve(|_, _| Reply::new(200).delayed(Duration::from_secs(5))).await;
     let root = collection("cancel");
-    write(&root.join("slow.http"), &format!("GET {}/slow\n", server.url));
+    write(
+        &root.join("slow.http"),
+        &format!("GET {}/slow\n", server.url),
+    );
 
     let (mut app, mut messages) = app(&root);
     open(&mut app, "slow.http");
     ctrl(&mut app, 'r');
 
     let screen = render(&mut app);
-    assert!(screen.contains("Sending"), "no sign of the request:\n{screen}");
-    assert!(screen.contains("⌃C"), "the way out is not on screen:\n{screen}");
+    assert!(
+        screen.contains("Sending"),
+        "no sign of the request:\n{screen}"
+    );
+    assert!(
+        screen.contains("⌃C"),
+        "the way out is not on screen:\n{screen}"
+    );
 
     ctrl(&mut app, 'c');
     settle(&mut app, &mut messages).await;
@@ -469,7 +519,10 @@ async fn an_event_stream_shows_every_event() {
     })
     .await;
     let root = collection("stream");
-    write(&root.join("events.http"), &format!("GET {}/events\n", server.url));
+    write(
+        &root.join("events.http"),
+        &format!("GET {}/events\n", server.url),
+    );
 
     let (mut app, mut messages) = app(&root);
     open(&mut app, "events.http");
@@ -516,14 +569,20 @@ async fn collections_and_specs_open_as_trees_of_requests() {
         screen.contains("GET    /pets/{id}"),
         "the operation sits in the tree under its tag:\n{screen}"
     );
-    assert!(screen.contains("pets  1"), "the tag counts its operations:\n{screen}");
+    assert!(
+        screen.contains("pets  1"),
+        "the tag counts its operations:\n{screen}"
+    );
 }
 
 #[tokio::test]
 async fn find_opens_a_request_from_anywhere() {
     let root = collection("find");
     write(&root.join("a").join("list.http"), "GET https://x/list\n");
-    write(&root.join("b").join("create.http"), "POST https://x/create\n");
+    write(
+        &root.join("b").join("create.http"),
+        "POST https://x/create\n",
+    );
 
     let (mut app, _messages) = app(&root);
     ctrl(&mut app, 'f');
@@ -538,7 +597,10 @@ async fn find_opens_a_request_from_anywhere() {
 async fn history_sends_a_request_again() {
     let server = serve(|_, _| Reply::new(200).body("pong")).await;
     let root = collection("history");
-    write(&root.join("ping.http"), &format!("GET {}/ping\n", server.url));
+    write(
+        &root.join("ping.http"),
+        &format!("GET {}/ping\n", server.url),
+    );
 
     let (mut app, mut messages) = app(&root);
     open(&mut app, "ping.http");
@@ -564,11 +626,23 @@ async fn ctrl_q_always_quits() {
     let ctrl_q = KeyEvent::new(KeyCode::Char('q'), KeyModifiers::CONTROL);
 
     let openers = [
-        ("nothing open", KeyEvent::new(KeyCode::Null, KeyModifiers::NONE)),
-        ("command palette", KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL)),
+        (
+            "nothing open",
+            KeyEvent::new(KeyCode::Null, KeyModifiers::NONE),
+        ),
+        (
+            "command palette",
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+        ),
         ("help", KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE)),
-        ("search", KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL)),
-        ("environments", KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL)),
+        (
+            "search",
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+        ),
+        (
+            "environments",
+            KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
+        ),
     ];
     for (what, opener) in openers {
         let (mut app, _messages) = app(&root);
@@ -596,8 +670,14 @@ async fn the_splash_greets_and_any_key_dismisses_it() {
 
     let screen = render(&mut app);
     println!("\n{screen}\n");
-    assert!(screen.contains("an HTTP client for the terminal"), "{screen}");
-    assert!(screen.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))), "{screen}");
+    assert!(
+        screen.contains("an HTTP client for the terminal"),
+        "{screen}"
+    );
+    assert!(
+        screen.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))),
+        "{screen}"
+    );
     assert!(screen.contains("Collections in"), "{screen}");
     assert!(screen.contains("Any key to begin"), "{screen}");
 
@@ -650,7 +730,11 @@ async fn the_panels_sit_where_v1_put_them() {
     assert_eq!(rows[url].first(), Some(&'╭'), "{screen}");
     assert_eq!(rows[url].get(WIDTH as usize - 1), Some(&'╮'), "{screen}");
     let collections = row_of("Collections");
-    assert_eq!(collections, url + 3, "the collections start under the URL bar:\n{screen}");
+    assert_eq!(
+        collections,
+        url + 3,
+        "the collections start under the URL bar:\n{screen}"
+    );
 
     // The collections are v1's 48 wide, beside the request over the response.
     assert_eq!(rows[collections].get(47), Some(&'╮'), "{screen}");
@@ -689,7 +773,10 @@ async fn the_mouse_reaches_what_the_keys_do() {
     let second = serve(|_, _| Reply::new(200).body("second")).await;
     let root = collection("mouse");
     write(&root.join(".env"), &format!("BASE={}\n", first.url));
-    write(&root.join(".env.staging"), &format!("BASE={}\n", second.url));
+    write(
+        &root.join(".env.staging"),
+        &format!("BASE={}\n", second.url),
+    );
     write(
         &root.join("users").join("list.http"),
         "GET {{BASE}}/users\nAccept: */*\n",
@@ -705,9 +792,15 @@ async fn the_mouse_reaches_what_the_keys_do() {
     assert_eq!(app.tab().section, Section::Headers);
 
     click(&mut app, "default ▾");
-    assert!(matches!(app.overlay, Some(Overlay::Picker(_))), "the picker drops its list");
+    assert!(
+        matches!(app.overlay, Some(Overlay::Picker(_))),
+        "the picker drops its list"
+    );
     click(&mut app, "staging");
-    assert_eq!(app.tab().env_source().map(|s| s.label.as_str()), Some("staging"));
+    assert_eq!(
+        app.tab().env_source().map(|s| s.label.as_str()),
+        Some("staging")
+    );
 
     click(&mut app, " Send ");
     settle(&mut app, &mut messages).await;
@@ -726,13 +819,19 @@ async fn the_mouse_reaches_what_the_keys_do() {
 #[tokio::test]
 async fn a_click_on_the_selected_row_edits_it_and_a_click_away_keeps_it() {
     let root = collection("mouse-rows");
-    write(&root.join("a.http"), "GET https://example.com/users\nAccept: */*\n");
+    write(
+        &root.join("a.http"),
+        "GET https://example.com/users\nAccept: */*\n",
+    );
     let (mut app, _messages) = app(&root);
     open(&mut app, "a.http");
 
     click(&mut app, "Headers");
     click(&mut app, "Accept");
-    assert!(app.tab().headers.edit.is_some(), "the selected row, clicked, is edited");
+    assert!(
+        app.tab().headers.edit.is_some(),
+        "the selected row, clicked, is edited"
+    );
     typed(&mut app, "-Language");
     click(&mut app, "Params");
     assert!(app.tab().headers.edit.is_none());
@@ -757,14 +856,21 @@ async fn the_wheel_scrolls_what_is_under_it() {
     let body: String = (1..=80).map(|n| format!("line {n}\n")).collect();
     let server = serve(move |_, _| Reply::new(200).body(&body)).await;
     let root = collection("wheel");
-    write(&root.join("long.http"), &format!("GET {}/long\n", server.url));
+    write(
+        &root.join("long.http"),
+        &format!("GET {}/long\n", server.url),
+    );
     let (mut app, mut messages) = app(&root);
     open(&mut app, "long.http");
     ctrl(&mut app, 'r');
     settle(&mut app, &mut messages).await;
 
     let (column, row) = locate(&mut app, "line 1");
-    assert_eq!(app.focus, Pane::Collections, "the response does not have focus");
+    assert_eq!(
+        app.focus,
+        Pane::Collections,
+        "the response does not have focus"
+    );
     mouse(&mut app, MouseEventKind::ScrollDown, column, row);
     assert_eq!(app.tab().response.scroll, 3);
 }
@@ -790,14 +896,26 @@ async fn the_environment_list_drops_from_the_picker() {
     write(&root.join(".env"), "A=1\n");
     write(&root.join(".env.staging"), "A=2\n");
     let (mut app, _messages) = app(&root);
-    assert!(render(&mut app).lines().next().unwrap().ends_with("default ▾"));
+    assert!(
+        render(&mut app)
+            .lines()
+            .next()
+            .unwrap()
+            .ends_with("default ▾")
+    );
 
     ctrl(&mut app, 'e');
     let screen = render(&mut app);
     println!("\n{screen}\n");
     let rows: Vec<&str> = screen.lines().collect();
-    assert!(rows[1].contains("Environments"), "the list hangs under the header:\n{screen}");
-    assert!(rows[1].ends_with("╮"), "flush with the picker's right end:\n{screen}");
+    assert!(
+        rows[1].contains("Environments"),
+        "the list hangs under the header:\n{screen}"
+    );
+    assert!(
+        rows[1].ends_with("╮"),
+        "flush with the picker's right end:\n{screen}"
+    );
 }
 
 /// Relative luminance, per WCAG.
@@ -880,7 +998,11 @@ async fn an_open_modal_dims_what_is_behind_it() {
     assert!(distance(dimmed, background) < distance(bright, background));
 
     press(&mut app, KeyCode::Esc);
-    assert_eq!(colour_at(&mut app), bright, "closing should restore the layout");
+    assert_eq!(
+        colour_at(&mut app),
+        bright,
+        "closing should restore the layout"
+    );
 }
 
 #[tokio::test]
@@ -890,9 +1012,21 @@ async fn every_modal_hugs_its_content() {
     write(&root.join("a.http"), "GET https://x\n");
 
     let cases = [
-        ("help", KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE), "Help"),
-        ("palette", KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL), "Commands"),
-        ("search", KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL), "Find a request"),
+        (
+            "help",
+            KeyEvent::new(KeyCode::F(1), KeyModifiers::NONE),
+            "Help",
+        ),
+        (
+            "palette",
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::CONTROL),
+            "Commands",
+        ),
+        (
+            "search",
+            KeyEvent::new(KeyCode::Char('f'), KeyModifiers::CONTROL),
+            "Find a request",
+        ),
         (
             "environments",
             KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL),
@@ -939,7 +1073,10 @@ async fn every_modal_hugs_its_content() {
             blank_rows * 3 <= inner_rows,
             "{what} is mostly empty: {blank_rows} blank of {inner_rows}:\n{screen}"
         );
-        assert!(bottom - top + 1 < HEIGHT as usize, "{what} fills the screen:\n{screen}");
+        assert!(
+            bottom - top + 1 < HEIGHT as usize,
+            "{what} fills the screen:\n{screen}"
+        );
     }
 }
 
@@ -950,7 +1087,12 @@ async fn the_help_screen_lists_the_keys_that_work() {
     press(&mut app, KeyCode::F(1));
     let screen = render(&mut app);
     println!("\n{screen}\n");
-    for binding in ["Send the request", "Environments", "Copy as cURL", "Change the method"] {
+    for binding in [
+        "Send the request",
+        "Environments",
+        "Copy as cURL",
+        "Change the method",
+    ] {
         assert!(screen.contains(binding), "{binding} missing:\n{screen}");
     }
     assert!(matches!(app.overlay, Some(Overlay::Help)));

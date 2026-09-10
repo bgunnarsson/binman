@@ -63,7 +63,13 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
     frame.render_widget(Paragraph::new(lines), inner);
 }
 
-fn render_node(app: &App, id: NodeId, depth: usize, selected: bool, focused: bool) -> Line<'static> {
+fn render_node(
+    app: &App,
+    id: NodeId,
+    depth: usize,
+    selected: bool,
+    focused: bool,
+) -> Line<'static> {
     let Some(node) = app.tree.find(id) else {
         return Line::default();
     };
@@ -110,7 +116,10 @@ fn render_node(app: &App, id: NodeId, depth: usize, selected: bool, focused: boo
             spans.push(Span::styled(name.clone(), theme::node_collection()));
         }
         NodeKind::Folder { name } => {
-            spans.push(Span::styled(format!("{} ", theme::ICON_FOLDER), theme::node_dir()));
+            spans.push(Span::styled(
+                format!("{} ", theme::ICON_FOLDER),
+                theme::node_dir(),
+            ));
             spans.push(Span::styled(name.clone(), theme::node_dir()));
             count(&mut spans);
         }
@@ -119,11 +128,17 @@ fn render_node(app: &App, id: NodeId, depth: usize, selected: bool, focused: boo
             spans.push(Span::styled(name.clone(), theme::node_file()));
         }
         NodeKind::Spec { name, .. } => {
-            spans.push(Span::styled(format!("{} ", theme::ICON_SPEC), theme::node_spec()));
+            spans.push(Span::styled(
+                format!("{} ", theme::ICON_SPEC),
+                theme::node_spec(),
+            ));
             spans.push(Span::styled(name.clone(), theme::node_spec()));
         }
         NodeKind::Tag { name } => {
-            spans.push(Span::styled(format!("{} ", theme::ICON_TAG), theme::node_tag()));
+            spans.push(Span::styled(
+                format!("{} ", theme::ICON_TAG),
+                theme::node_tag(),
+            ));
             spans.push(Span::styled(name.clone(), theme::node_tag()));
             count(&mut spans);
         }

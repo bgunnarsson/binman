@@ -203,7 +203,11 @@ mod tests {
     fn the_window_scrolls_only_as_far_as_the_cursor_needs() {
         let input = LineInput::new("abcdefghij");
         assert_eq!(input.first_visible(20), 0);
-        assert_eq!(input.first_visible(5), 6, "four characters and the cursor cell");
+        assert_eq!(
+            input.first_visible(5),
+            6,
+            "four characters and the cursor cell"
+        );
     }
 
     #[test]

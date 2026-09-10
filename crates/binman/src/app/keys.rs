@@ -92,7 +92,10 @@ fn global(app: &mut App, key: KeyEvent) -> bool {
 
 pub(super) fn cycle_focus(app: &mut App, delta: isize) {
     let order = Pane::ORDER;
-    let position = order.iter().position(|pane| *pane == app.focus).unwrap_or(0) as isize;
+    let position = order
+        .iter()
+        .position(|pane| *pane == app.focus)
+        .unwrap_or(0) as isize;
     app.focus = order[(position + delta).rem_euclid(order.len() as isize) as usize];
 }
 
@@ -367,10 +370,12 @@ fn overlay(app: &mut App, key: KeyEvent) {
             KeyCode::Char('k') if !picker.kind.filters() => picker.move_selection(-1),
             KeyCode::Char('j') if !picker.kind.filters() => picker.move_selection(1),
             KeyCode::Char('e') if picker.kind == PickerKind::Environments => {
-                let index = picker.chosen().and_then(|index| match picker.entries[index].action {
-                    Action::UseEnv(env) => env,
-                    _ => None,
-                });
+                let index = picker
+                    .chosen()
+                    .and_then(|index| match picker.entries[index].action {
+                        Action::UseEnv(env) => env,
+                        _ => None,
+                    });
                 app.overlay = None;
                 app.edit_env(index);
             }

@@ -33,11 +33,12 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets) {
     // While something is being typed, what the keys do there matters more
     // than a passing remark about what happened before it.
     let typing = app.focus == Pane::Request && app.tab().is_typing();
-    let (message, message_style) = if app.status.is_stale() || (typing && app.status.tone == Tone::Info) {
-        (context(app), theme::muted())
-    } else {
-        (app.status.text.clone(), tone_style(app.status.tone))
-    };
+    let (message, message_style) =
+        if app.status.is_stale() || (typing && app.status.tone == Tone::Info) {
+            (context(app), theme::muted())
+        } else {
+            (app.status.text.clone(), tone_style(app.status.tone))
+        };
 
     let hints = hint_spans();
     let hints_width = ui::width_of(&hints);
@@ -88,7 +89,8 @@ fn context(app: &App) -> String {
     match app.focus {
         Pane::Collections => "Enter opens a request · ⌃F finds one anywhere".into(),
         Pane::Url => {
-            "↑↓ changes the method · Enter sends · a pasted curl command is imported on Enter".into()
+            "↑↓ changes the method · Enter sends · a pasted curl command is imported on Enter"
+                .into()
         }
         Pane::Request => request_context(tab),
         Pane::Response => match tab.response.received() {
@@ -108,7 +110,9 @@ fn request_context(tab: &Tab) -> String {
     }
     if tab.is_typing() {
         return match tab.section {
-            Section::Vars => "Enter keeps this request's own value · Esc leaves it as it was".into(),
+            Section::Vars => {
+                "Enter keeps this request's own value · Esc leaves it as it was".into()
+            }
             Section::Auth => "Enter keeps it · Esc leaves it as it was".into(),
             _ => "Enter keeps it · Tab goes to the value · Esc leaves it as it was".into(),
         };
@@ -117,10 +121,14 @@ fn request_context(tab: &Tab) -> String {
     match tab.section {
         Section::Params | Section::Headers => table.into(),
         Section::Body if tab.body_kind.is_form() => format!("{table} · ←→ changes the kind"),
-        Section::Body if tab.body_kind == BodyKind::None => "←→ picks what kind of body to send".into(),
+        Section::Body if tab.body_kind == BodyKind::None => {
+            "←→ picks what kind of body to send".into()
+        }
         Section::Body => "Enter edits the body · ←→ changes the kind".into(),
         Section::Auth => "←→ picks the auth · Enter edits a field · d clears it".into(),
-        Section::Vars => "Enter gives a variable a value of its own · d goes back to the resolved one".into(),
+        Section::Vars => {
+            "Enter gives a variable a value of its own · d goes back to the resolved one".into()
+        }
         Section::Scripts => "Enter edits the rules".into(),
         Section::Info => "[ ] changes section".into(),
     }

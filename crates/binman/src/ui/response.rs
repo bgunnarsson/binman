@@ -182,7 +182,9 @@ fn headers(received: &Received) -> Vec<Line<'static>> {
     let mut lines = vec![Line::from(vec![
         Span::styled(format!("{}  ", exchange.version), theme::muted()),
         Span::styled(
-            format!("{} {}", exchange.status, exchange.reason).trim_end().to_string(),
+            format!("{} {}", exchange.status, exchange.reason)
+                .trim_end()
+                .to_string(),
             theme::status(exchange.status),
         ),
     ])];
@@ -237,7 +239,9 @@ fn cookies(received: &Received) -> Vec<Line<'static>> {
         lines.push(Line::from(""));
     }
     if !exchange.jar.is_empty() {
-        lines.push(heading("In the jar — sent with the next request to this host"));
+        lines.push(heading(
+            "In the jar — sent with the next request to this host",
+        ));
         for (name, value) in &exchange.jar {
             lines.push(Line::from(vec![
                 Span::styled(format!("  {name}"), theme::header_name()),
@@ -264,7 +268,9 @@ fn scripts(received: &Received) -> Vec<Line<'static>> {
         ];
     }
 
-    let mut lines = vec![heading("Extracted — every tab's requests can use these now")];
+    let mut lines = vec![heading(
+        "Extracted — every tab's requests can use these now",
+    )];
     lines.extend(received.extracted.iter().map(|(name, value)| {
         Line::from(vec![
             Span::styled(format!("  {name}"), theme::header_name()),
@@ -303,7 +309,11 @@ fn trace(received: &Received, width: usize) -> Vec<Line<'static>> {
             },
         ),
         row("Connect", trace.connect, "TCP, and TLS for https"),
-        row("First byte", Some(trace.first_byte), "from sending to the headers"),
+        row(
+            "First byte",
+            Some(trace.first_byte),
+            "from sending to the headers",
+        ),
         row("Download", Some(download), "the body"),
         row("Total", Some(trace.total), ""),
     ]

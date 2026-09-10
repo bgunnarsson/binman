@@ -32,7 +32,10 @@ async fn fetch(client: &Client, grant: &Grant) -> binman_core::Result<String> {
 #[tokio::test]
 async fn sends_the_grant_as_a_form() {
     let server = serve(|_, _| {
-        Reply::json(200, r#"{"access_token":"tok-1","token_type":"Bearer","expires_in":3600}"#)
+        Reply::json(
+            200,
+            r#"{"access_token":"tok-1","token_type":"Bearer","expires_in":3600}"#,
+        )
     })
     .await;
 
@@ -66,7 +69,9 @@ async fn sends_the_grant_as_a_form() {
 #[tokio::test]
 async fn an_empty_scope_is_not_sent() {
     let server = serve(|_, _| Reply::json(200, r#"{"access_token":"tok","expires_in":60}"#)).await;
-    fetch(&client(), &grant(&server.url, "")).await.expect("a token");
+    fetch(&client(), &grant(&server.url, ""))
+        .await
+        .expect("a token");
     let form = server.last().unwrap().form();
     assert!(
         !form.iter().any(|(key, _)| key == "scope"),
@@ -77,7 +82,10 @@ async fn an_empty_scope_is_not_sent() {
 #[tokio::test]
 async fn a_token_is_reused_until_it_nears_expiry() {
     let server = serve(|_, call| {
-        Reply::json(200, &format!(r#"{{"access_token":"tok-{call}","expires_in":3600}}"#))
+        Reply::json(
+            200,
+            &format!(r#"{{"access_token":"tok-{call}","expires_in":3600}}"#),
+        )
     })
     .await;
     let client = client();
@@ -85,7 +93,11 @@ async fn a_token_is_reused_until_it_nears_expiry() {
 
     assert_eq!(fetch(&client, &grant).await.unwrap(), "tok-1");
     assert_eq!(fetch(&client, &grant).await.unwrap(), "tok-1");
-    assert_eq!(server.hits(), 1, "the second call should have used the cache");
+    assert_eq!(
+        server.hits(),
+        1,
+        "the second call should have used the cache"
+    );
 }
 
 #[tokio::test]
@@ -94,7 +106,10 @@ async fn a_token_inside_the_skew_window_is_fetched_again() {
     // handing it out would mean a request that leaves authorised and arrives
     // expired.
     let server = serve(|_, call| {
-        Reply::json(200, &format!(r#"{{"access_token":"tok-{call}","expires_in":10}}"#))
+        Reply::json(
+            200,
+            &format!(r#"{{"access_token":"tok-{call}","expires_in":10}}"#),
+        )
     })
     .await;
     let client = client();
@@ -120,7 +135,8 @@ async fn a_token_without_an_expiry_gets_an_hour() {
 
 #[tokio::test]
 async fn an_expiry_sent_as_a_string_is_honoured() {
-    let server = serve(|_, _| Reply::json(200, r#"{"access_token":"tok","expires_in":"3600"}"#)).await;
+    let server =
+        serve(|_, _| Reply::json(200, r#"{"access_token":"tok","expires_in":"3600"}"#)).await;
     let client = client();
     let grant = grant(&server.url, "");
     fetch(&client, &grant).await.unwrap();
@@ -145,19 +161,27 @@ async fn a_refusal_is_reported_whole_and_not_cached() {
     assert!(error.contains("401"), "{error}");
     assert!(error.contains("invalid_client"), "{error}");
 
-    assert_eq!(fetch(&client, &grant).await.unwrap(), "tok", "the retry reached the endpoint");
+    assert_eq!(
+        fetch(&client, &grant).await.unwrap(),
+        "tok",
+        "the retry reached the endpoint"
+    );
 }
 
 #[tokio::test]
 async fn a_success_without_a_token_is_an_error() {
-    let server = serve(|_, _| Reply::json(200, r#"{"token_type":"Bearer","expires_in":3600}"#)).await;
+    let server =
+        serve(|_, _| Reply::json(200, r#"{"token_type":"Bearer","expires_in":3600}"#)).await;
     assert!(fetch(&client(), &grant(&server.url, "")).await.is_err());
 }
 
 #[tokio::test]
 async fn a_body_that_is_not_json_says_so() {
     let server = serve(|_, _| Reply::new(200).body("<html>login required</html>")).await;
-    let error = fetch(&client(), &grant(&server.url, "")).await.unwrap_err().to_string();
+    let error = fetch(&client(), &grant(&server.url, ""))
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(error.contains("decode"), "{error}");
 }
 

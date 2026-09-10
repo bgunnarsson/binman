@@ -17,8 +17,8 @@ use binman_core::history::{self, History};
 use binman_core::oauth2::Grant;
 use binman_core::request::{header, set_header};
 use binman_core::{
-    AuthKind, Client, EnvSource, Error, Format, Origin, Prepared, Request, Vars, auth, collection, env,
-    vars,
+    AuthKind, Client, EnvSource, Error, Format, Origin, Prepared, Request, Vars, auth, collection,
+    env, vars,
 };
 use ratatui::style::Style;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -27,7 +27,7 @@ use tui_textarea::TextArea;
 
 use crate::{pretty, theme};
 use line::LineInput;
-use overlay::{Action, Command, EnvEditor, Entry, Overlay, Picker, PickerKind, SavePrompt};
+use overlay::{Action, Command, Entry, EnvEditor, Overlay, Picker, PickerKind, SavePrompt};
 use tab::{Outcome, Received, Section, Tab};
 use tree::Tree;
 
@@ -126,7 +126,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(root: PathBuf, client: Client, history: History) -> (App, UnboundedReceiver<Message>) {
+    pub fn new(
+        root: PathBuf,
+        client: Client,
+        history: History,
+    ) -> (App, UnboundedReceiver<Message>) {
         let (tx, rx) = unbounded_channel();
         let mut app = App {
             tree: Tree::new(root.clone()),
@@ -445,8 +449,12 @@ impl App {
         let status = match result {
             Ok(received) => {
                 let status = Status::new(summary(&received), tone_of(received.exchange.status));
-                self.extracted
-                    .extend(received.extracted.iter().map(|(k, v)| (k.clone(), v.clone())));
+                self.extracted.extend(
+                    received
+                        .extracted
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone())),
+                );
                 if !received.exchange.streamed {
                     tab.response.scroll = 0;
                     tab.response.follow = false;
@@ -563,14 +571,15 @@ impl App {
         };
 
         let scope = tab.scope(&self.extracted);
-        let fields: Option<Vec<(String, String)>> = (tab.body_kind == BodyKind::Multipart).then(|| {
-            tab.form
-                .rows
-                .iter()
-                .filter(|(name, _)| !name.trim().is_empty())
-                .map(|(name, value)| (scope.resolve(name.trim()), scope.resolve(value)))
-                .collect()
-        });
+        let fields: Option<Vec<(String, String)>> =
+            (tab.body_kind == BodyKind::Multipart).then(|| {
+                tab.form
+                    .rows
+                    .iter()
+                    .filter(|(name, _)| !name.trim().is_empty())
+                    .map(|(name, value)| (scope.resolve(name.trim()), scope.resolve(value)))
+                    .collect()
+            });
         let request = Request {
             method: prepared.method,
             url: prepared.url,
@@ -587,7 +596,9 @@ impl App {
         self.clipboard = Some(command.clone());
         self.overlay = Some(Overlay::Curl(command));
         if grant.is_some() {
-            self.warn("Sent to the clipboard — without the OAuth2 token, which is fetched when sending");
+            self.warn(
+                "Sent to the clipboard — without the OAuth2 token, which is fetched when sending",
+            );
         } else {
             self.success("Sent to the clipboard");
         }
@@ -644,7 +655,11 @@ impl App {
                 action: Action::Run(command),
             })
             .collect();
-        self.overlay = Some(Overlay::Picker(Picker::new(PickerKind::Commands, entries, 0)));
+        self.overlay = Some(Overlay::Picker(Picker::new(
+            PickerKind::Commands,
+            entries,
+            0,
+        )));
     }
 
     pub fn open_find(&mut self) {
@@ -696,7 +711,11 @@ impl App {
                 }
             })
             .collect();
-        self.overlay = Some(Overlay::Picker(Picker::new(PickerKind::History, entries, 0)));
+        self.overlay = Some(Overlay::Picker(Picker::new(
+            PickerKind::History,
+            entries,
+            0,
+        )));
     }
 
     pub fn open_envs(&mut self) {
@@ -778,7 +797,11 @@ impl App {
     /// Opens an environment file to edit: the one given, or the one in use.
     pub fn edit_env(&mut self, index: Option<usize>) {
         let tab = self.tab();
-        let Some(source) = index.or(tab.env).and_then(|index| tab.envs.get(index)).cloned() else {
+        let Some(source) = index
+            .or(tab.env)
+            .and_then(|index| tab.envs.get(index))
+            .cloned()
+        else {
             self.warn("No environment is selected — ⌃E picks one");
             return;
         };
@@ -957,7 +980,11 @@ async fn exchange(
 ) -> Result<Box<Received>, Error> {
     if let Some(grant) = grant {
         let token = client.client_credentials(&grant, cancel).await?;
-        set_header(&mut prepared.headers, "Authorization", format!("Bearer {token}"));
+        set_header(
+            &mut prepared.headers,
+            "Authorization",
+            format!("Bearer {token}"),
+        );
     }
     let exchange = client.send(&prepared, cancel, on_event).await?;
     let text = exchange.text();
@@ -1079,7 +1106,10 @@ mod tests {
 
     #[test]
     fn a_host_is_what_a_url_reaches() {
-        assert_eq!(host_of("https://api.example.com/v1/users?x=1"), "https://api.example.com");
+        assert_eq!(
+            host_of("https://api.example.com/v1/users?x=1"),
+            "https://api.example.com"
+        );
         assert_eq!(host_of("http://localhost:8080"), "http://localhost:8080");
         assert_eq!(host_of("{{BASE}}/users"), "{{BASE}}");
     }

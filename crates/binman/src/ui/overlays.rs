@@ -37,7 +37,12 @@ fn frame_for(frame: &mut Frame, area: Rect, title: &str) -> Rect {
     inner
 }
 
-fn frame_for_counted(frame: &mut Frame, area: Rect, title: &str, counter: impl Into<String>) -> Rect {
+fn frame_for_counted(
+    frame: &mut Frame,
+    area: Rect,
+    title: &str,
+    counter: impl Into<String>,
+) -> Rect {
     frame.render_widget(Clear, area);
     let block = ui::counted_pane(title, counter, true).style(theme::overlay());
     let inner = block.inner(area);
@@ -69,7 +74,11 @@ fn saturating_u16(value: usize) -> u16 {
 
 /// The widest line in a block, in display columns.
 fn block_width(lines: &[Line<'_>]) -> usize {
-    lines.iter().map(|line| ui::width_of(&line.spans)).max().unwrap_or(0)
+    lines
+        .iter()
+        .map(|line| ui::width_of(&line.spans))
+        .max()
+        .unwrap_or(0)
 }
 
 fn hints(pairs: &[(&str, &str)]) -> Line<'static> {
@@ -89,7 +98,14 @@ fn hints(pairs: &[(&str, &str)]) -> Line<'static> {
 /// The wordmark's letters in the ANSI-shadow shape a terminal splash is
 /// expected to wear. Every glyph is single-width, so the block is exactly as
 /// wide as it looks.
-const B: [&str; 6] = ["██████╗ ", "██╔══██╗", "██████╔╝", "██╔══██╗", "██████╔╝", "╚═════╝ "];
+const B: [&str; 6] = [
+    "██████╗ ",
+    "██╔══██╗",
+    "██████╔╝",
+    "██╔══██╗",
+    "██████╔╝",
+    "╚═════╝ ",
+];
 const I: [&str; 6] = ["██╗", "██║", "██║", "██║", "██║", "╚═╝"];
 const N: [&str; 6] = [
     "███╗   ██╗",
@@ -107,7 +123,14 @@ const M: [&str; 6] = [
     "██║ ╚═╝ ██║",
     "╚═╝     ╚═╝",
 ];
-const A: [&str; 6] = [" █████╗ ", "██╔══██╗", "███████║", "██╔══██║", "██║  ██║", "╚═╝  ╚═╝"];
+const A: [&str; 6] = [
+    " █████╗ ",
+    "██╔══██╗",
+    "███████║",
+    "██╔══██║",
+    "██║  ██║",
+    "╚═╝  ╚═╝",
+];
 
 fn wordmark() -> Vec<String> {
     (0..6)
@@ -135,7 +158,11 @@ fn splash(frame: &mut Frame, root: &std::path::Path, area: Rect) {
 
     let mut lines: Vec<Line<'static>> = Vec::new();
     if roomy {
-        lines.extend(wordmark.into_iter().map(|row| Line::from(Span::styled(row, theme::brand()))));
+        lines.extend(
+            wordmark
+                .into_iter()
+                .map(|row| Line::from(Span::styled(row, theme::brand()))),
+        );
     } else {
         lines.push(Line::from(vec![
             Span::styled(format!("{} ", theme::MARK), theme::brand()),
@@ -257,7 +284,10 @@ const SECTIONS: &[Section] = &[
 fn section_lines(sections: &[Section]) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for (heading, bindings) in sections {
-        lines.push(Line::from(Span::styled((*heading).to_string(), theme::title(true))));
+        lines.push(Line::from(Span::styled(
+            (*heading).to_string(),
+            theme::title(true),
+        )));
         for (keys, description) in *bindings {
             lines.push(Line::from(vec![
                 Span::raw("  "),
@@ -389,7 +419,11 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect, targets: &mut Targ
     }
     if picker.kind == PickerKind::Environments {
         lines.push(Line::from(""));
-        lines.push(hints(&[("↵", "use"), ("e", "edit the file"), ("Esc", "close")]));
+        lines.push(hints(&[
+            ("↵", "use"),
+            ("e", "edit the file"),
+            ("Esc", "close"),
+        ]));
     }
 
     let mut width = saturating_u16(
@@ -490,7 +524,11 @@ fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect) {
     lines.push(hints(&[("↵", "save"), ("Esc", "cancel")]));
 
     let height = saturating_u16(lines.len()) + BORDERS;
-    let inner = frame_for(frame, ui::centered_size(area, width, height), "Save the response to");
+    let inner = frame_for(
+        frame,
+        ui::centered_size(area, width, height),
+        "Save the response to",
+    );
     frame.render_widget(Paragraph::new(lines), padded(inner));
 }
 
@@ -498,17 +536,23 @@ fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect) {
 
 fn curl(frame: &mut Frame, command: &str, area: Rect) {
     let ceiling = (area.width * 88 / 100).max(1);
-    let wanted = saturating_u16(
-        UnicodeWidthStr::width(command) + BORDERS as usize + PADDING * 2,
-    );
+    let wanted = saturating_u16(UnicodeWidthStr::width(command) + BORDERS as usize + PADDING * 2);
     let width = wanted.clamp(48.min(ceiling), ceiling);
     let body_width = width.saturating_sub(BORDERS + PADDING as u16 * 2) as usize;
 
-    let mut lines = ui::wrap_line(&Line::from(Span::styled(command.to_string(), theme::text())), body_width);
+    let mut lines = ui::wrap_line(
+        &Line::from(Span::styled(command.to_string(), theme::text())),
+        body_width,
+    );
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("Any key closes this.", theme::dim())));
+    lines.push(Line::from(Span::styled(
+        "Any key closes this.",
+        theme::dim(),
+    )));
 
-    let height = saturating_u16(lines.len()).saturating_add(BORDERS).min(area.height);
+    let height = saturating_u16(lines.len())
+        .saturating_add(BORDERS)
+        .min(area.height);
     let inner = frame_for_counted(
         frame,
         ui::centered_size(area, width, height),
