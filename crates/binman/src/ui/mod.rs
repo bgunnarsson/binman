@@ -16,12 +16,13 @@ use crate::app::App;
 use crate::app::line::LineInput;
 use crate::theme;
 
-/// The sidebar's share of the width, bounded so it stays usable in a narrow
-/// terminal and does not swallow a wide one.
-const EXPLORER_PERCENT: u16 = 26;
-const EXPLORER_MIN: u16 = 24;
-const EXPLORER_MAX: u16 = 46;
+/// v1's sidebar width, held to two fifths of a narrow terminal so the request
+/// and the response keep most of it.
+const EXPLORER_WIDTH: u16 = 48;
 
+/// v1's arrangement: the header with the environment picker at its right, the
+/// URL across the whole width, then the collections beside the request over
+/// the response.
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let area = frame.area();
     frame.render_widget(Block::default().style(theme::body()), area);
@@ -30,22 +31,25 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(3),
             Constraint::Min(3),
             Constraint::Length(1),
         ])
         .split(area);
 
-    let explorer_width = (rows[1].width * EXPLORER_PERCENT / 100)
-        .clamp(EXPLORER_MIN.min(rows[1].width), EXPLORER_MAX);
+    let explorer_width = EXPLORER_WIDTH.min(rows[3].width * 2 / 5);
     let columns = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(explorer_width), Constraint::Min(20)])
-        .split(rows[1]);
+        .split(rows[3]);
 
     header::draw(frame, app, rows[0]);
+    request::draw_tabs(frame, app, rows[1]);
+    request::draw_url(frame, app, rows[2]);
     explorer::draw(frame, app, columns[0]);
     draw_workspace(frame, app, columns[1]);
-    status::draw(frame, app, rows[2]);
+    status::draw(frame, app, rows[4]);
 
     // Everything recedes behind an open modal, so the modal is plainly the
     // thing being talked to and the layout stays as context rather than as
@@ -74,22 +78,15 @@ fn recede(frame: &mut Frame, area: Rect, amount: f32) {
 }
 
 /// The response gets the larger share: it is what is read, while the request
-/// is mostly a few headers. v1 split them two to five.
+/// is mostly a few headers. Two to five, as v1 split them.
 fn draw_workspace(frame: &mut Frame, app: &mut App, area: Rect) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(3),
-            Constraint::Percentage(33),
-            Constraint::Min(5),
-        ])
+        .constraints([Constraint::Fill(2), Constraint::Fill(5)])
         .split(area);
 
-    request::draw_tabs(frame, app, rows[0]);
-    request::draw_url(frame, app, rows[1]);
-    request::draw(frame, app, rows[2]);
-    response::draw(frame, app, rows[3]);
+    request::draw(frame, app, rows[0]);
+    response::draw(frame, app, rows[1]);
 }
 
 /// The bordered frame every pane and overlay shares.
@@ -98,21 +95,22 @@ fn draw_workspace(frame: &mut Frame, app: &mut App, area: Rect) {
 /// and a counter sits at the right end of the same border rather than
 /// competing with the content for a line.
 pub fn pane(title: &str, focused: bool) -> Block<'static> {
-    framed(title, None, focused, theme::chrome())
+    framed(title, Vec::new(), focused, theme::chrome())
 }
 
 /// A pane over the body surface rather than the chrome one: the URL, the
 /// request and the response, which are content, not chrome.
-pub fn body_pane(title: &str, counter: Option<String>, focused: bool) -> Block<'static> {
+pub fn body_pane(title: &str, counter: Vec<Span<'static>>, focused: bool) -> Block<'static> {
     framed(title, counter, focused, theme::body())
 }
 
 pub fn counted_pane(title: &str, counter: impl Into<String>, focused: bool) -> Block<'static> {
-    framed(title, Some(counter.into()), focused, theme::chrome())
+    let counter = vec![Span::styled(counter.into(), theme::counter())];
+    framed(title, counter, focused, theme::chrome())
 }
 
-fn framed(title: &str, counter: Option<String>, focused: bool, surface: Style) -> Block<'static> {
-    let mut block = Block::default()
+fn framed(title: &str, counter: Vec<Span<'static>>, focused: bool, surface: Style) -> Block<'static> {
+    let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(theme::border(focused))
@@ -121,17 +119,19 @@ fn framed(title: &str, counter: Option<String>, focused: bool, surface: Style) -
             Span::styled(format!(" {title} "), theme::title(focused)),
         ]))
         .style(surface);
+    with_counter(block, counter, focused)
+}
 
-    if let Some(counter) = counter {
-        block = block.title_top(
-            Line::from(vec![
-                Span::styled(format!(" {counter} "), theme::counter()),
-                Span::styled("─", theme::border(focused)),
-            ])
-            .right_aligned(),
-        );
+/// Puts styled spans at the right end of a block's top border.
+fn with_counter(block: Block<'static>, counter: Vec<Span<'static>>, focused: bool) -> Block<'static> {
+    if counter.is_empty() {
+        return block;
     }
-    block
+    let mut spans = vec![Span::raw(" ")];
+    spans.extend(counter);
+    spans.push(Span::raw(" "));
+    spans.push(Span::styled("─", theme::border(focused)));
+    block.title_top(Line::from(spans).right_aligned())
 }
 
 /// A pane whose sections sit in its top border as tabs, the current one lit,
@@ -153,21 +153,13 @@ pub fn tabbed_pane(
     }
     title.push(Span::raw(" "));
 
-    let mut block = Block::default()
+    let block = Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(theme::border(focused))
         .title_top(Line::from(title))
         .style(theme::body());
-
-    if !counter.is_empty() {
-        let mut spans = vec![Span::raw(" ")];
-        spans.extend(counter);
-        spans.push(Span::raw(" "));
-        spans.push(Span::styled("─", theme::border(focused)));
-        block = block.title_top(Line::from(spans).right_aligned());
-    }
-    block
+    with_counter(block, counter, focused)
 }
 
 /// Centres a box of an explicit size, clamped to fit `area`.
@@ -191,6 +183,19 @@ pub fn anchored_size(area: Rect, width: u16, height: u16, from_top: u16) -> Rect
     Rect {
         x: area.x + (area.width - width) / 2,
         y: area.y + top,
+        width,
+        height,
+    }
+}
+
+/// Hangs a box from the right end of the header, the way a dropdown opens
+/// under the control that opened it.
+pub fn dropdown_size(area: Rect, width: u16, height: u16) -> Rect {
+    let width = width.min(area.width);
+    let height = height.min(area.height.saturating_sub(1));
+    Rect {
+        x: area.right().saturating_sub(width + 1).max(area.x),
+        y: area.y + 1,
         width,
         height,
     }

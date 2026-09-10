@@ -12,7 +12,7 @@ use ratatui::widgets::Paragraph;
 
 use crate::app::kv::{Column, KvTable};
 use crate::app::tab::{Section, Tab};
-use crate::app::{App, Pane};
+use crate::app::{App, Pane, host_of};
 use crate::theme;
 use crate::ui;
 
@@ -42,10 +42,7 @@ pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
 pub fn draw_url(frame: &mut Frame, app: &App, area: Rect) {
     let focused = app.focus == Pane::Url;
     let tab = app.tab();
-    let env = tab
-        .env_source()
-        .map_or_else(|| "no environment".to_string(), |source| source.label.clone());
-    let block = ui::body_pane("Request", Some(env), focused);
+    let block = ui::body_pane("Request", destination(app), focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
     if inner.height == 0 {
@@ -84,6 +81,24 @@ pub fn draw_url(frame: &mut Frame, app: &App, area: Rect) {
         spans.extend(line.spans);
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+}
+
+/// The scheme and host the URL resolves to, at the end of the URL bar —
+/// because two requests both called `list.http` look identical until
+/// something spells out which server each one reaches.
+fn destination(app: &App) -> Vec<Span<'static>> {
+    let tab = app.tab();
+    let url = tab.scope(&app.extracted).resolve(tab.url.text().trim());
+    if url.is_empty() {
+        return Vec::new();
+    }
+    let host = host_of(&url);
+    let style = if vars::scan(&host).is_empty() {
+        theme::counter()
+    } else {
+        theme::warning()
+    };
+    vec![Span::styled(host, style)]
 }
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {

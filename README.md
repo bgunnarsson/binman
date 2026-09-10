@@ -160,8 +160,9 @@ collections/
 ```
 
 Bruno `environments/*.bru` files and Postman `*.postman_environment.json` files
-are found the same way and listed alongside. `⌃E` opens the list: `Enter` uses
-an environment, `e` opens its file to edit in place. The choice carries to every
+are found the same way and listed alongside. The one in use sits in the picker
+at the right of the header; `⌃E` drops its list: `Enter` uses an environment,
+`e` opens its file to edit in place. The choice carries to every
 request opened after it, so a session can be spent against staging without
 choosing it each time. The file is read again before every send, so an edit
 made outside binman is picked up.
@@ -187,8 +188,8 @@ extracted after you opened it is still the one it sends. `d` hands a variable
 back to the layers below.
 
 A URL that still names an unset variable is not sent. It is lit in a warning
-colour in the URL bar before you try, and the header says which host the rest
-of it resolves to.
+colour in the URL bar before you try, and the right end of the URL bar says
+which host the rest of it resolves to.
 
 ### Extracting values from responses
 
@@ -280,7 +281,10 @@ local development certificate in the keychain, say — is trusted here too.
 
 ### Look
 
-binsql's, which binman sits beside in the same terminal:
+The panels sit where v1 put them: the header with the environment picker at its
+right, the URL bar across the whole width, then the collections beside the
+request over the response, split two to five. The styling is binsql's, which
+binman sits beside in the same terminal:
 
 - **Two surfaces.** The body — the URL, the request, the response — is
   `#1e1e2e`; chrome — the tree, the tab strip, the header and status lines,
@@ -329,8 +333,8 @@ Some of these fix v1 bugs; the rest follow binsql.
 - **`TIMEOUT = 0` means no timeout**, as v1's README said. v1's code applied
   30 seconds anyway.
 - **`⌃C` only cancels; `⌃Q` quits**, as in binsql. `⌃T` opens a tab, so the
-  method moved to `↑`/`↓` in the URL bar. The environment dropdown is `⌃E`, and
-  editing the environment file is `e` in that list.
+  method moved to `↑`/`↓` in the URL bar. The environment dropdown opens on
+  `⌃E`, and editing the environment file is `e` in its list.
 - **Keyboard only.** There is no mouse capture, which leaves the terminal's own
   text selection working over the response.
 - **Auth kinds that only pretended are gone.** v1 listed AWS Sig v4, Digest,

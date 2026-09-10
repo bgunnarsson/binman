@@ -165,6 +165,19 @@ pub fn status_bar() -> Style {
     Style::default().bg(CHROME_BG).fg(SUBTEXT)
 }
 
+/// The environment picker in the header, as v1 coloured its dropdown: lit when
+/// an environment is in use, quiet when requests go out under none.
+pub fn env_picker(active: bool) -> Style {
+    if active {
+        Style::default()
+            .bg(SURFACE)
+            .fg(TEAL)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().bg(SURFACE_LOW).fg(SUBTEXT)
+    }
+}
+
 pub fn tab(active: bool) -> Style {
     if active {
         Style::default()

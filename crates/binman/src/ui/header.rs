@@ -1,37 +1,36 @@
 //! The header line.
 //!
-//! One question, as in binsql: where does ⌃R send this. The left says which
-//! request it is and the environment it goes out under; the right, the host
-//! its URL resolves to — because two requests both called `list.http` look
-//! identical until something spells out which server each one reaches.
+//! v1's: which request this is on the left, and the environment picker on the
+//! right, where v1 kept its dropdown. ⌃E opens the list, and it drops from the
+//! picker rather than from the middle of the screen.
 //!
-//! Styled after Claude Code rather than binvim: the mark carries the only
-//! colour, everything after it is quiet text separated by `·`, and there are
-//! no chips or arrows.
+//! The left is styled after Claude Code: the mark carries the only colour, and
+//! everything after it is quiet text separated by `·`.
 
-use binman_core::vars;
 use ratatui::Frame;
 use ratatui::layout::Rect;
-use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use unicode_width::UnicodeWidthStr;
 
-use crate::app::{App, host_of};
+use crate::app::App;
 use crate::theme;
 use crate::ui;
 
-pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
-    let left = identity(app);
-    let left_width = ui::width_of(&left);
+/// v1's dropdown was sixteen wide; a label past that is cut rather than let
+/// push the request's name off the line.
+const PICKER_LABEL: usize = 16;
 
-    // The host gives way before the identity does: which request this is
-    // matters more than where it goes, once the two cannot both fit.
-    let mut right = destination(app);
-    if left_width + ui::width_of(&right) > area.width as usize {
+pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+    // The name gives way before the picker does: the picker is the control,
+    // the name only context. The picker goes only when it cannot fit at all.
+    let mut right = picker(app);
+    if ui::width_of(&right) > area.width as usize {
         right.clear();
     }
 
+    let left = identity(app);
+    let left_width = ui::width_of(&left);
     let room = (area.width as usize).saturating_sub(ui::width_of(&right));
     let mut spans = if left_width > room {
         truncate_spans(left, room)
@@ -48,7 +47,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
     );
 }
 
-/// Which request this is, and the environment it goes out under.
+/// Which request this is.
 fn identity(app: &App) -> Vec<Span<'static>> {
     let mut spans = vec![Span::styled(format!(" {}  ", theme::MARK), theme::brand())];
     let tab = app.tab();
@@ -56,41 +55,32 @@ fn identity(app: &App) -> Vec<Span<'static>> {
     if tab.origin.is_none() && tab.url.text().trim().is_empty() {
         // Nothing to name yet, so the header says which program this is.
         spans.push(Span::styled("binman", theme::muted()));
-        spans.push(separator());
+        spans.push(Span::styled("  ·  ", theme::dim()));
         spans.push(Span::styled("new request", theme::dim()));
         return spans;
     }
 
     spans.push(Span::styled(app.describe(tab), theme::title(true)));
-    if let Some(source) = tab.env_source() {
-        spans.push(separator());
-        spans.push(Span::styled(source.label.clone(), theme::muted()));
-    }
     spans
 }
 
-/// The scheme and host the URL resolves to, or what is missing for it to.
-fn destination(app: &App) -> Vec<Span<'static>> {
-    let tab = app.tab();
-    let url = tab.scope(&app.extracted).resolve(tab.url.text().trim());
-    if url.is_empty() {
-        return Vec::new();
-    }
-    let host = host_of(&url);
-    let style: Style = if vars::scan(&host).is_empty() {
-        theme::muted()
-    } else {
-        theme::warning()
-    };
-    vec![Span::styled(host, style), Span::raw(" ")]
-}
-
-fn separator() -> Span<'static> {
-    Span::styled("  ·  ", theme::dim())
+/// The environment the request goes out under, worn as a dropdown, after the
+/// key that opens it.
+fn picker(app: &App) -> Vec<Span<'static>> {
+    let source = app.tab().env_source();
+    let label = source.map_or("no environment", |source| source.label.as_str());
+    vec![
+        Span::styled("⌃E ", theme::key()),
+        Span::styled(
+            format!(" {} ▾ ", ui::truncate(label, PICKER_LABEL)),
+            theme::env_picker(source.is_some()),
+        ),
+        Span::styled(" ", theme::status_bar()),
+    ]
 }
 
 /// Cuts a run of styled segments to fit, keeping the leading ones whole: the
-/// mark and the request matter more than the environment after them.
+/// mark matters more than the end of a long path.
 fn truncate_spans(spans: Vec<Span<'static>>, room: usize) -> Vec<Span<'static>> {
     let mut out = Vec::with_capacity(spans.len());
     let mut used = 0;
