@@ -27,7 +27,7 @@ pub mod source;
 mod testing;
 pub mod vars;
 
-pub use auth::AuthKind;
+pub use auth::{Auth, AuthKind};
 pub use body::BodyKind;
 pub use client::{Client, Exchange, Prepared, SetCookie, Trace};
 pub use config::Config;

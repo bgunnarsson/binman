@@ -1,5 +1,6 @@
 //! One request, however it was written down.
 
+use crate::auth::Auth;
 use crate::body::BodyKind;
 use crate::vars::Vars;
 
@@ -20,6 +21,9 @@ pub struct Request {
     /// Variables the file declares for itself: Bruno's `vars` and
     /// `vars:pre-request`. They outrank the environment.
     pub vars: Vars,
+    /// What the file says to authenticate with. Only Bruno's files say; every
+    /// other format leaves it at none.
+    pub auth: Auth,
 }
 
 impl Request {

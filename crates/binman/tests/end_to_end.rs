@@ -575,6 +575,51 @@ async fn a_new_file_goes_nowhere_it_should_not() {
 }
 
 #[tokio::test]
+async fn a_bru_file_s_auth_opens_sends_and_saves_back() {
+    let server = serve(|_, _| Reply::new(204)).await;
+    let root = collection("bru-auth");
+    write(&root.join(".env"), "token=tok-1\n");
+    let path = root.join("me.bru");
+    let original = format!(
+        "get {{\n  url: {}/me\n  body: none\n  auth: bearer\n}}\n\nauth:bearer {{\n  token: {{{{token}}}}\n}}\n",
+        server.url
+    );
+    write(&path, &original);
+
+    let (mut app, mut messages) = app(&root);
+    open(&mut app, "me.bru");
+    section(&mut app, Section::Auth);
+    let screen = render(&mut app);
+    println!("\n{screen}\n");
+    assert!(screen.contains("Bearer token"), "{screen}");
+    assert!(screen.contains("{{token}}"), "{screen}");
+
+    ctrl(&mut app, 'r');
+    settle(&mut app, &mut messages).await;
+    assert_eq!(
+        server.last().unwrap().header("authorization"),
+        Some("Bearer tok-1")
+    );
+
+    ctrl(&mut app, 's');
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
+
+    press(&mut app, KeyCode::Enter);
+    ctrl(&mut app, 'u');
+    typed(&mut app, "{{other}}");
+    press(&mut app, KeyCode::Enter);
+    assert!(
+        app.tab().is_dirty(),
+        "auth is saved, so it counts as an edit"
+    );
+    ctrl(&mut app, 's');
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        original.replace("{{token}}", "{{other}}")
+    );
+}
+
+#[tokio::test]
 async fn ctrl_c_cancels_a_request_in_flight() {
     let server = serve(|_, _| Reply::new(200).delayed(Duration::from_secs(5))).await;
     let root = collection("cancel");
