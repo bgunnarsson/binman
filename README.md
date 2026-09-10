@@ -354,4 +354,5 @@ Some of these fix v1 bugs; the rest follow binsql.
 
 ## Licence
 
-MIT. The licence file is in `_old/` with the rest of v1.
+Free to use, copy, modify and distribute for personal, educational and
+non-commercial purposes. See [LICENSE](LICENSE).

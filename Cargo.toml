@@ -6,7 +6,7 @@ resolver = "3"
 version = "2.0.0-dev"
 edition = "2024"
 rust-version = "1.90"
-license = "MIT"
+license-file = "LICENSE"
 repository = "https://github.com/bgunnarsson/binman"
 
 [workspace.dependencies]
