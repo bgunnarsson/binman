@@ -1,0 +1,35 @@
+[package]
+name = "binman"
+description = "An HTTP client for the terminal."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "binman"
+path = "src/lib.rs"
+
+[[bin]]
+name = "binman"
+path = "src/main.rs"
+
+[dependencies]
+binman-core = { path = "../binman-core" }
+
+anyhow.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures-util.workspace = true
+serde_json.workspace = true
+
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
+tui-textarea = { version = "0.7", default-features = false, features = [
+    "crossterm",
+    "ratatui",
+    "search",
+] }
+unicode-width = "0.2"
+base64 = "0.22"
