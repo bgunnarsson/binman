@@ -5,9 +5,10 @@ Bruno `.bru`, `.graphql`, Postman collections, OpenAPI specs — as a tree you c
 walk, requests open in tabs, and the response beside them, without leaving the
 keyboard.
 
-Version 2 is a rewrite in Rust. The Go implementation is archived under
-[`_old/`](_old/) and still builds; see [Status](#status) for what behaves
-differently and what has not been carried across.
+Version 2 is a rewrite in Rust. The Go implementation is the 1.x releases, the
+last of them [1.0.8](https://github.com/bgunnarsson/binman/releases/tag/1.0.8);
+see [Status](#status) for what behaves differently and what has not been
+carried across.
 
 ```
  ✻  users/list.http  ·  staging                                                  https://api.staging.io
@@ -366,8 +367,8 @@ Some of these fix v1 bugs; the rest follow binsql.
 ### Not carried across yet
 
 - **The Homebrew tap.** Releases are built by GitHub Actions when a `v*` tag
-  is pushed, but the tap's formula and `_old/scripts/pkg-homebrew.sh` are
-  v1's: the formula builds `./cmd/binman` with Go, which v2 does not have.
+  is pushed, but the formula in `bgunnarsson/homebrew-binman` is still v1's: it
+  builds 1.0.8 from source with Go.
 - **A command mode** — `binman send`, for scripts and agents, the way binsql
   has `query`, `exec` and `inspect`. The core is a library so it can be added.
 - **Saving a request that has no file** — a new tab, a replay from history —
