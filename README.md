@@ -161,7 +161,7 @@ collections/
 
 Bruno `environments/*.bru` files and Postman `*.postman_environment.json` files
 are found the same way and listed alongside. The one in use sits in the picker
-at the right of the header; `⌃E` drops its list: `Enter` uses an environment,
+at the right of the header; `⌃E` or a click drops its list: `Enter` uses an environment,
 `e` opens its file to edit in place. The choice carries to every
 request opened after it, so a session can be spent against staging without
 choosing it each time. The file is read again before every send, so an edit
@@ -253,6 +253,15 @@ method and `Enter` sends. In the request: `[`/`]` move between sections,
 `Esc` stops editing. In the response: `[`/`]` move between body, headers,
 cookies, extracted values and the trace, and `j`/`k`, `⌃D`/`⌃U`, `g`/`G` scroll.
 
+The mouse reaches the same things. A click focuses a pane, picks a tab, a
+section or a response view, and opens a request in the tree; a click on the row
+already selected edits it, as `Enter` would. The picker in the header drops the
+environment list, a click on the method changes it, and **Send** at the end of
+the URL bar sends — or cancels while a request is out. The status line's hints
+can be clicked too. The wheel scrolls whatever is under the pointer, and a
+middle click closes a tab. Holding Shift — Option in iTerm2 — still selects
+text the terminal's own way.
+
 Opening a request reuses the tab you are in unless it holds edits or a request
 in flight, in which case it gets a new one. A request already open in a tab is
 switched to rather than opened twice. A tab with edits carries `•` in the tab
@@ -335,8 +344,6 @@ Some of these fix v1 bugs; the rest follow binsql.
 - **`⌃C` only cancels; `⌃Q` quits**, as in binsql. `⌃T` opens a tab, so the
   method moved to `↑`/`↓` in the URL bar. The environment dropdown opens on
   `⌃E`, and editing the environment file is `e` in its list.
-- **Keyboard only.** There is no mouse capture, which leaves the terminal's own
-  text selection working over the response.
 - **Auth kinds that only pretended are gone.** v1 listed AWS Sig v4, Digest,
   NTLM, WSSE and a bare "OAuth 2.0" and sent their field labels as literal
   headers. "Inherit" did nothing either. The **Options** tab never did anything

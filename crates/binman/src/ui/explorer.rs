@@ -3,12 +3,13 @@ use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use crate::app::mouse::{Target, Targets};
 use crate::app::tree::{LoadState, NodeId, NodeKind};
 use crate::app::{App, Pane};
 use crate::theme;
 use crate::ui;
 
-pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let focused = app.focus == Pane::Collections;
     let root = app
         .root
@@ -18,6 +19,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = ui::counted_pane("Collections", root, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    targets.add(area, Target::Pane(Pane::Collections));
 
     if app.tree.roots.is_empty() {
         frame.render_widget(
@@ -54,6 +56,9 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             }
         })
         .collect();
+    for (row, index) in (app.tree.offset..visible.len()).take(height).enumerate() {
+        targets.add(ui::line_at(inner, row), Target::Node(index));
+    }
 
     frame.render_widget(Paragraph::new(lines), inner);
 }

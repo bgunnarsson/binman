@@ -7,10 +7,13 @@ use anyhow::{Context, Result, bail};
 use base64::Engine;
 use binman_core::history::History;
 use binman_core::{Client, Config};
-use crossterm::event::{DisableBracketedPaste, EnableBracketedPaste, Event, EventStream};
+use crossterm::event::{
+    DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
+    EventStream, MouseEventKind,
+};
 use futures_util::StreamExt;
 
-use binman::app::{self, App, keys};
+use binman::app::{self, App, keys, mouse};
 use binman::ui;
 
 const HELP: &str = "\
@@ -74,10 +77,19 @@ async fn main() -> Result<()> {
 
     let mut terminal = ratatui::init();
     // Bracketed paste, so a curl command copied over several lines arrives as
-    // one paste rather than as keystrokes whose line breaks press Enter.
-    let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste);
+    // one paste rather than as keystrokes whose line breaks press Enter. Mouse
+    // capture, so a click reaches binman; the terminal's own selection is
+    // still there with Shift held — Option in iTerm2.
+    let _ = crossterm::execute!(std::io::stdout(), EnableBracketedPaste, EnableMouseCapture);
+    // ratatui's panic hook restores the screen but knows nothing of these,
+    // and a shell left with mouse capture on prints every movement.
+    let restore = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture, DisableBracketedPaste);
+        restore(info);
+    }));
     let result = run(&mut terminal, &mut app, &mut messages).await;
-    let _ = crossterm::execute!(std::io::stdout(), DisableBracketedPaste);
+    let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture, DisableBracketedPaste);
     ratatui::restore();
     result
 }
@@ -92,16 +104,29 @@ async fn run(
     // nothing redraws until something happens.
     let mut tick = tokio::time::interval(Duration::from_millis(250));
 
+    let mut redraw = true;
+
     loop {
-        terminal.draw(|frame| ui::draw(frame, app))?;
-        if let Some(text) = app.clipboard.take() {
-            copy_to_clipboard(&text);
+        if redraw {
+            terminal.draw(|frame| ui::draw(frame, app))?;
+            if let Some(text) = app.clipboard.take() {
+                copy_to_clipboard(&text);
+            }
         }
+        redraw = true;
 
         tokio::select! {
             event = events.next() => match event {
                 Some(Ok(Event::Key(key))) => keys::handle(app, key),
                 Some(Ok(Event::Paste(text))) => app.paste(&text),
+                // The pointer moving, button held or not, changes nothing on
+                // screen; drawing for every cell it crosses would be waste.
+                Some(Ok(Event::Mouse(event)))
+                    if matches!(event.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) =>
+                {
+                    redraw = false;
+                }
+                Some(Ok(Event::Mouse(event))) => mouse::handle(app, event),
                 Some(Ok(_)) => {}
                 Some(Err(error)) => return Err(error.into()),
                 // stdin closed; there is no way to drive the UI any more.

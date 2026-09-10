@@ -143,6 +143,22 @@ impl LineInput {
         }
         start
     }
+
+    /// Puts the cursor under a click `column` display columns into the text
+    /// as drawn from its `start`th character, or at the end past it.
+    pub fn place_cursor(&mut self, start: usize, column: usize) {
+        let mut used = 0;
+        let mut cursor = start;
+        for ch in self.text.chars().skip(start) {
+            let width = UnicodeWidthChar::width(ch).unwrap_or(0);
+            if used + width > column {
+                break;
+            }
+            used += width;
+            cursor += 1;
+        }
+        self.cursor = cursor.min(self.text.chars().count());
+    }
 }
 
 #[cfg(test)]
@@ -188,5 +204,16 @@ mod tests {
         let input = LineInput::new("abcdefghij");
         assert_eq!(input.first_visible(20), 0);
         assert_eq!(input.first_visible(5), 6, "four characters and the cursor cell");
+    }
+
+    #[test]
+    fn a_click_lands_the_cursor_under_it() {
+        let mut input = LineInput::new("https://example.com");
+        input.place_cursor(0, 8);
+        assert_eq!(input.cursor(), 8);
+        input.place_cursor(4, 2);
+        assert_eq!(input.cursor(), 6, "counted from the first character shown");
+        input.place_cursor(0, 99);
+        assert_eq!(input.cursor(), 19, "past the end is the end");
     }
 }

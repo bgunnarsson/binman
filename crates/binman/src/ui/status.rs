@@ -8,23 +8,26 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use unicode_width::UnicodeWidthStr;
 
+use crate::app::mouse::{Target, Targets};
 use crate::app::tab::{Section, Tab};
 use crate::app::{App, Pane, Tone};
 use crate::theme;
 use crate::ui;
 
 /// Key, then what it does, so the key can carry the accent and the label a
-/// foreground bright enough to read.
-const HINTS: [(&str, &str); 5] = [
-    ("⇥", "panes"),
-    ("⌃R", "send"),
-    ("⌃K", "commands"),
-    ("F1", "help"),
-    ("⌃Q", "quit"),
+/// foreground bright enough to read — and what a click on it does.
+const HINTS: [(&str, &str, Option<Target>); 5] = [
+    ("⇥", "panes", Some(Target::CycleFocus)),
+    ("⌃R", "send", Some(Target::Send)),
+    ("⌃K", "commands", Some(Target::Palette)),
+    ("F1", "help", Some(Target::Help)),
+    // Not clickable: a stray click in the corner would end the session.
+    ("⌃Q", "quit", None),
 ];
 
-pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets) {
     // The transient message, or the context it falls back to once the
     // message has aged out.
     let (message, message_style) = if app.status.is_stale() {
@@ -45,6 +48,16 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
         spans.push(Span::styled(" ".repeat(room - used), theme::status_bar()));
         spans.extend(hints);
         spans.push(Span::styled(" ", theme::status_bar()));
+
+        let mut x = area.x.saturating_add(room as u16);
+        for (binding, what, target) in HINTS {
+            let width = UnicodeWidthStr::width(binding) + 1 + UnicodeWidthStr::width(what);
+            let width = width as u16;
+            if let Some(target) = target {
+                targets.add(ui::spot(area, x, width), target);
+            }
+            x = x.saturating_add(width + 3);
+        }
     }
 
     frame.render_widget(
@@ -55,7 +68,7 @@ pub fn draw(frame: &mut Frame, app: &App, area: Rect) {
 
 fn hint_spans() -> Vec<Span<'static>> {
     let mut spans = Vec::with_capacity(HINTS.len() * 3);
-    for (index, (binding, what)) in HINTS.iter().enumerate() {
+    for (index, (binding, what, _)) in HINTS.iter().enumerate() {
         if index > 0 {
             spans.push(Span::styled(" · ", theme::dim()));
         }

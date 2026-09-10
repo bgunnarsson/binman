@@ -90,7 +90,7 @@ fn global(app: &mut App, key: KeyEvent) -> bool {
     true
 }
 
-fn cycle_focus(app: &mut App, delta: isize) {
+pub(super) fn cycle_focus(app: &mut App, delta: isize) {
     let order = Pane::ORDER;
     let position = order.iter().position(|pane| *pane == app.focus).unwrap_or(0) as isize;
     app.focus = order[(position + delta).rem_euclid(order.len() as isize) as usize];

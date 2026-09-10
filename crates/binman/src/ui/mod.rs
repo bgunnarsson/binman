@@ -14,6 +14,7 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::app::App;
 use crate::app::line::LineInput;
+use crate::app::mouse::Targets;
 use crate::theme;
 
 /// v1's sidebar width, held to two fifths of a narrow terminal so the request
@@ -44,12 +45,15 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         .constraints([Constraint::Length(explorer_width), Constraint::Min(20)])
         .split(rows[3]);
 
-    header::draw(frame, app, rows[0]);
-    request::draw_tabs(frame, app, rows[1]);
-    request::draw_url(frame, app, rows[2]);
-    explorer::draw(frame, app, columns[0]);
-    draw_workspace(frame, app, columns[1]);
-    status::draw(frame, app, rows[4]);
+    // Filled as each part is drawn, so a click is looked up in exactly what
+    // is on screen.
+    let mut targets = Targets::default();
+    header::draw(frame, app, rows[0], &mut targets);
+    request::draw_tabs(frame, app, rows[1], &mut targets);
+    request::draw_url(frame, app, rows[2], &mut targets);
+    explorer::draw(frame, app, columns[0], &mut targets);
+    draw_workspace(frame, app, columns[1], &mut targets);
+    status::draw(frame, app, rows[4], &mut targets);
 
     // Everything recedes behind an open modal, so the modal is plainly the
     // thing being talked to and the layout stays as context rather than as
@@ -57,7 +61,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     if app.overlay.is_some() {
         recede(frame, area, theme::SCRIM);
     }
-    overlays::draw(frame, app, area);
+    overlays::draw(frame, app, area, &mut targets);
+    app.targets = targets;
 }
 
 /// Blends every cell in `area` toward the background.
@@ -79,14 +84,14 @@ fn recede(frame: &mut Frame, area: Rect, amount: f32) {
 
 /// The response gets the larger share: it is what is read, while the request
 /// is mostly a few headers. Two to five, as v1 split them.
-fn draw_workspace(frame: &mut Frame, app: &mut App, area: Rect) {
+fn draw_workspace(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Fill(2), Constraint::Fill(5)])
         .split(area);
 
-    request::draw(frame, app, rows[0]);
-    response::draw(frame, app, rows[1]);
+    request::draw(frame, app, rows[0], targets);
+    response::draw(frame, app, rows[1], targets);
 }
 
 /// The bordered frame every pane and overlay shares.
@@ -185,6 +190,60 @@ pub fn anchored_size(area: Rect, width: u16, height: u16, from_top: u16) -> Rect
         y: area.y + top,
         width,
         height,
+    }
+}
+
+/// One row of `area` from column `x`, cut to fit: where something drawn on
+/// that row can be clicked.
+pub fn spot(area: Rect, x: u16, width: u16) -> Rect {
+    Rect {
+        x,
+        y: area.y,
+        width,
+        height: 1,
+    }
+    .intersection(area)
+}
+
+/// The `row`th line of `area`, or nothing when it falls outside.
+pub fn line_at(area: Rect, row: usize) -> Rect {
+    let y = area.y.saturating_add(u16::try_from(row).unwrap_or(u16::MAX));
+    Rect { y, height: 1, ..area }.intersection(area)
+}
+
+/// Where each section's name sits in a tabbed pane's top border, as
+/// `tabbed_pane` draws them: after the corner, a dash and a space, two apart.
+pub fn section_spots<'a>(area: Rect, labels: impl IntoIterator<Item = &'a str>) -> Vec<Rect> {
+    let border = border_row(area);
+    let mut x = area.x.saturating_add(3);
+    labels
+        .into_iter()
+        .map(|label| {
+            let width = u16::try_from(UnicodeWidthStr::width(label)).unwrap_or(u16::MAX);
+            let at = spot(border, x, width);
+            x = x.saturating_add(width).saturating_add(2);
+            at
+        })
+        .collect()
+}
+
+/// Where a counter `width` columns wide sits at the right end of a pane's top
+/// border, as `with_counter` draws it.
+pub fn counter_spot(area: Rect, width: u16) -> Rect {
+    spot(
+        border_row(area),
+        area.right().saturating_sub(width.saturating_add(3)),
+        width,
+    )
+}
+
+/// A pane's top border, between its corners.
+fn border_row(area: Rect) -> Rect {
+    Rect {
+        x: area.x.saturating_add(1),
+        width: area.width.saturating_sub(2),
+        height: area.height.min(1),
+        ..area
     }
 }
 

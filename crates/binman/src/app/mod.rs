@@ -1,6 +1,7 @@
 pub mod keys;
 pub mod kv;
 pub mod line;
+pub mod mouse;
 pub mod overlay;
 pub mod tab;
 pub mod tree;
@@ -116,6 +117,8 @@ pub struct App {
     /// Text for the terminal's clipboard. The loop that owns the terminal
     /// writes it, since nothing else can.
     pub clipboard: Option<String>,
+    /// What the last draw put where, for a click to be looked up in.
+    pub targets: mouse::Targets,
     pub should_quit: bool,
     env_choice: EnvChoice,
     next_tab_id: u64,
@@ -137,6 +140,7 @@ impl App {
             status: Status::new("⌃K for commands, F1 for help", Tone::Info),
             extracted: Vars::new(),
             clipboard: None,
+            targets: mouse::Targets::default(),
             should_quit: false,
             env_choice: EnvChoice::First,
             next_tab_id: 0,

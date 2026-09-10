@@ -5,18 +5,19 @@ use ratatui::widgets::{Clear, Paragraph};
 use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
+use crate::app::mouse::{Target, Targets};
 use crate::app::overlay::{EnvEditor, Overlay, Picker, PickerKind, SavePrompt};
 use crate::theme;
 use crate::ui;
 use crate::ui::explorer::badge;
 
-pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let root = app.root.clone();
     match &mut app.overlay {
         None => {}
         Some(Overlay::Splash) => splash(frame, &root, area),
         Some(Overlay::Help) => help(frame, area),
-        Some(Overlay::Picker(picker)) => picker_box(frame, picker, area),
+        Some(Overlay::Picker(picker)) => picker_box(frame, picker, area, targets),
         Some(Overlay::Env(editor)) => env_editor(frame, editor, area),
         Some(Overlay::SaveResponse(prompt)) => save_prompt(frame, prompt, area),
         Some(Overlay::Curl(command)) => curl(frame, command, area),
@@ -316,7 +317,7 @@ const MIN_PICKER_WIDTH: u16 = 56;
 /// list that shrinks as the query narrows it grows and shrinks downwards
 /// instead of sliding the prompt under the cursor. The environments drop from
 /// the picker in the header instead, as v1's dropdown did.
-fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
+fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect, targets: &mut Targets) {
     const FROM_TOP: u16 = 3;
     /// Enough to choose from without the box owning the screen.
     const MAX_ROWS: usize = 14;
@@ -344,8 +345,10 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
     let offset = ui::scroll_offset(0, picker.selected, rows);
 
     let mut entries = Vec::with_capacity(rows);
+    let mut positions = Vec::with_capacity(rows);
     let mut selected_row = None;
     for (position, &index) in matches.iter().enumerate().skip(offset).take(rows) {
+        positions.push(position);
         let entry = &picker.entries[index];
         let selected = position == picker.selected;
         if selected {
@@ -414,7 +417,13 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
         picker.kind.title(),
         format!("{position}/{}", matches.len()),
     );
-    frame.render_widget(Paragraph::new(lines), padded(inner));
+    let list = padded(inner);
+    targets.add(placed, Target::Overlay);
+    let first = if picker.kind.filters() { 2 } else { 0 };
+    for (row, position) in positions.into_iter().enumerate() {
+        targets.add(ui::line_at(list, first + row), Target::Entry(position));
+    }
+    frame.render_widget(Paragraph::new(lines), list);
 }
 
 // ── Environment editor ──────────────────────────────────────────────
