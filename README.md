@@ -15,6 +15,12 @@ tar -xzf binman-2.0.0-darwin-arm64.tar.gz
 sudo mv binman-2.0.0-darwin-arm64/binman /usr/local/bin/
 ```
 
+On macOS or Linux, Homebrew installs the same builds:
+
+```sh
+brew install bgunnarsson/binman/binman
+```
+
 Or build it with Rust 1.90 or newer:
 
 ```sh
@@ -255,10 +261,6 @@ cargo test --workspace
 The HTTP client is tested against a real local server, and the front end by
 driving the app against that server and a collection on disk and checking the
 rendered screen.
-
-## Not done yet
-
-- The Homebrew tap has not been updated for this version.
 
 ## Licence
 
