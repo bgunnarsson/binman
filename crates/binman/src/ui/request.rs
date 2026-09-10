@@ -252,14 +252,26 @@ fn table(
 
         match table.edit.as_ref().filter(|edit| edit.row == index) {
             Some(edit) => {
-                let on_name = edit.column == Column::Name;
-                let name = ui::input_line(&edit.name, name_width as u16, on_name, |_| theme::text());
-                let used = ui::width_of(&name.spans);
-                spans.extend(name.spans);
+                // The column being typed into is the field; the other stays
+                // as text, so Tab visibly moves the typing across.
+                spans[0] = ui::typing_bar();
+                let plain = |input, width: usize| {
+                    ui::input_line(input, width as u16, false, |_| theme::text()).spans
+                };
+                let (name, value) = match edit.column {
+                    Column::Name => (
+                        ui::field(&edit.name, name_width as u16),
+                        plain(&edit.value, value_width),
+                    ),
+                    Column::Value => (
+                        plain(&edit.name, name_width),
+                        ui::field(&edit.value, value_width as u16),
+                    ),
+                };
+                let used = ui::width_of(&name);
+                spans.extend(name);
                 spans.push(Span::raw(" ".repeat(name_width.saturating_sub(used) + 2)));
-                spans.extend(
-                    ui::input_line(&edit.value, value_width as u16, !on_name, |_| theme::text()).spans,
-                );
+                spans.extend(value);
             }
             None if index == table.rows.len() => {
                 spans.push(Span::styled(format!("+ add {noun}"), theme::dim()));
@@ -372,7 +384,8 @@ fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, tar
         ];
         match (&tab.auth.edit, selected) {
             (Some(input), true) => {
-                spans.extend(ui::input_line(input, value_width as u16, true, |_| theme::text()).spans)
+                spans[0] = ui::typing_bar();
+                spans.extend(ui::field(input, value_width as u16));
             }
             _ => {
                 let value = tab.auth.value(index);
@@ -460,7 +473,8 @@ fn vars_section(
         ];
         match (&tab.vars.edit, found) {
             (Some((editing, input)), _) if editing == name => {
-                spans.extend(ui::input_line(input, value_width as u16, true, |_| theme::text()).spans);
+                spans[0] = ui::typing_bar();
+                spans.extend(ui::field(input, value_width as u16));
             }
             (_, Some((value, layer))) => {
                 spans.push(Span::styled(

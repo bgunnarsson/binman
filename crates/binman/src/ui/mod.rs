@@ -323,10 +323,17 @@ pub fn bar(selected: bool, focused: bool) -> Span<'static> {
     }
 }
 
+/// The bar for a row being typed into, so the row says it is taking typing
+/// before the field in it is read.
+pub fn typing_bar() -> Span<'static> {
+    Span::styled(theme::SELECTION_BAR.to_string(), theme::typing_bar())
+}
+
 /// Marks the selected row the way binvim's picker does: an accent bar down the
 /// left, then a surface background under the rest. The bar carries the
 /// emphasis, so each span keeps its own foreground and the colours of what
-/// the row says survive being selected.
+/// the row says survive being selected — and a span with a background of its
+/// own, a field being typed into, keeps that too.
 pub fn highlight(line: Line<'static>, focused: bool, width: u16) -> Line<'static> {
     let background = theme::selection(focused);
     let mut spans: Vec<Span<'static>> = Vec::with_capacity(line.spans.len() + 1);
@@ -340,7 +347,7 @@ pub fn highlight(line: Line<'static>, focused: bool, width: u16) -> Line<'static
             content
         };
         remaining = remaining.saturating_sub(UnicodeWidthStr::width(trimmed.as_str()));
-        let style = if index == 0 {
+        let style = if index == 0 || span.style.bg.is_some() {
             span.style
         } else {
             span.style.patch(background)
@@ -404,6 +411,29 @@ pub fn input_line(
     focused: bool,
     style_of: impl Fn(usize) -> Style,
 ) -> Line<'static> {
+    Line::from(input_spans(input, width, focused, style_of, theme::cursor()))
+}
+
+/// A line input being typed into inside a row of a list: a well of its own
+/// colour across the width it may fill, and a caret that shows whatever colour
+/// the row is.
+pub fn field(input: &LineInput, width: u16) -> Vec<Span<'static>> {
+    let mut spans = input_spans(input, width, true, |_| theme::field(), theme::caret());
+    let used = width_of(&spans);
+    spans.push(Span::styled(
+        " ".repeat((width as usize).saturating_sub(used)),
+        theme::field(),
+    ));
+    spans
+}
+
+fn input_spans(
+    input: &LineInput,
+    width: u16,
+    focused: bool,
+    style_of: impl Fn(usize) -> Style,
+    cursor: Style,
+) -> Vec<Span<'static>> {
     let width = width as usize;
     let start = if focused { input.first_visible(width) } else { 0 };
     let mut runs = Runs::default();
@@ -416,15 +446,15 @@ pub fn input_line(
         }
         let mut style = style_of(offset);
         if focused && index == input.cursor() {
-            style = style.patch(theme::cursor());
+            style = style.patch(cursor);
         }
         runs.push(ch, style);
         used += ch_width;
     }
     if focused && input.cursor() >= input.text().chars().count() && used < width {
-        runs.push(' ', theme::cursor());
+        runs.push(' ', style_of(input.text().len()).patch(cursor));
     }
-    Line::from(runs.finish())
+    runs.finish()
 }
 
 /// Characters gathered into spans, one span per run of the same style.

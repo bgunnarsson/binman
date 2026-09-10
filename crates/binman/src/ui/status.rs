@@ -30,7 +30,10 @@ const HINTS: [(&str, &str, Option<Target>); 5] = [
 pub fn draw(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets) {
     // The transient message, or the context it falls back to once the
     // message has aged out.
-    let (message, message_style) = if app.status.is_stale() {
+    // While something is being typed, what the keys do there matters more
+    // than a passing remark about what happened before it.
+    let typing = app.focus == Pane::Request && app.tab().is_typing();
+    let (message, message_style) = if app.status.is_stale() || (typing && app.status.tone == Tone::Info) {
         (context(app), theme::muted())
     } else {
         (app.status.text.clone(), tone_style(app.status.tone))
@@ -104,7 +107,11 @@ fn request_context(tab: &Tab) -> String {
         return "Esc stops editing".into();
     }
     if tab.is_typing() {
-        return "Enter keeps it · Tab goes to the value · Esc leaves it as it was".into();
+        return match tab.section {
+            Section::Vars => "Enter keeps this request's own value · Esc leaves it as it was".into(),
+            Section::Auth => "Enter keeps it · Esc leaves it as it was".into(),
+            _ => "Enter keeps it · Tab goes to the value · Esc leaves it as it was".into(),
+        };
     }
     let table = "Enter edits · a adds · d deletes · [ ] changes section";
     match tab.section {
