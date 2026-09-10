@@ -1,0 +1,12 @@
+### Rust ###
+/target/
+**/*.rs.bk
+
+### Build output ###
+# Releases are served from GitHub, not from the repository.
+/dist/
+/binman
+
+### macOS ###
+.DS_Store
+**/.DS_Store
