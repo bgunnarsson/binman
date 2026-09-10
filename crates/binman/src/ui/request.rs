@@ -9,25 +9,30 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
+use unicode_width::UnicodeWidthStr;
 
 use crate::app::kv::{Column, KvTable};
+use crate::app::mouse::{Target, Targets};
 use crate::app::tab::{Section, Tab};
 use crate::app::{App, Pane, host_of};
 use crate::theme;
 use crate::ui;
 
-pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets) {
     let mut spans = Vec::new();
+    let mut x = area.x;
     for (index, tab) in app.tabs.iter().enumerate() {
         let active = index == app.active;
         let marker = if tab.is_sending() { "◐ " } else { "" };
         let dirty = if tab.is_dirty() { " •" } else { "" };
-        spans.push(Span::styled(
-            format!(" {marker}{}{dirty} ", ui::truncate(&tab.title, 24)),
-            theme::tab(active),
-        ));
+        let label = format!(" {marker}{}{dirty} ", ui::truncate(&tab.title, 24));
+        let width = u16::try_from(UnicodeWidthStr::width(label.as_str())).unwrap_or(u16::MAX);
+        targets.add(ui::spot(area, x, width), Target::Tab(index));
+        x = x.saturating_add(width).saturating_add(1);
+        spans.push(Span::styled(label, theme::tab(active)));
         spans.push(Span::raw(" "));
     }
+    targets.add(ui::spot(area, x, 3), Target::NewTab);
     spans.push(Span::styled(" + ", theme::dim()));
 
     frame.render_widget(
@@ -39,12 +44,13 @@ pub fn draw_tabs(frame: &mut Frame, app: &App, area: Rect) {
 /// The method and the URL. A `{{variable}}` in the URL is lit in one colour
 /// when something defines it and another when nothing does, so a missing
 /// environment shows before anything is sent rather than after.
-pub fn draw_url(frame: &mut Frame, app: &App, area: Rect) {
+pub fn draw_url(frame: &mut Frame, app: &App, area: Rect, targets: &mut Targets) {
     let focused = app.focus == Pane::Url;
     let tab = app.tab();
     let block = ui::body_pane("Request", destination(app), focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    targets.add(area, Target::Pane(Pane::Url));
     if inner.height == 0 {
         return;
     }
@@ -54,8 +60,37 @@ pub fn draw_url(frame: &mut Frame, app: &App, area: Rect) {
         width: inner.width.saturating_sub(2),
         ..inner
     };
+
+    // v1's button at the end of the bar, so a request can be sent — or
+    // called off — without the keyboard.
+    let sending = tab.is_sending();
+    let button = if sending { " Cancel " } else { " Send " };
+    let button_width = button.chars().count() as u16;
+    let button_spot = ui::spot(inner, inner.right().saturating_sub(button_width), button_width);
+    frame.render_widget(
+        Paragraph::new(Span::styled(button, theme::send_button(sending))),
+        button_spot,
+    );
+    targets.add(button_spot, Target::Send);
+
     let method = format!("{} ", tab.method);
     let method_width = method.chars().count() as u16;
+    targets.add(
+        ui::spot(inner, inner.x, method_width.saturating_sub(1)),
+        Target::Method,
+    );
+    let text_width = inner
+        .width
+        .saturating_sub(method_width + button_width + 1);
+    let start = if focused {
+        tab.url.first_visible(text_width as usize)
+    } else {
+        0
+    };
+    targets.add(
+        ui::spot(inner, inner.x + method_width, text_width),
+        Target::Url { start },
+    );
     let mut spans = vec![Span::styled(method, theme::method(&tab.method))];
 
     if tab.url.text().is_empty() && !focused {
@@ -68,19 +103,18 @@ pub fn draw_url(frame: &mut Frame, app: &App, area: Rect) {
         let lit: Vec<(Range<usize>, Style)> = vars::placeholders(tab.url.text())
             .map(|(range, name)| (range, theme::variable(scope.lookup(name).is_some())))
             .collect();
-        let line = ui::input_line(
-            &tab.url,
-            inner.width.saturating_sub(method_width),
-            focused,
-            |offset| {
-                lit.iter()
-                    .find(|(range, _)| range.contains(&offset))
-                    .map_or(theme::text(), |(_, style)| *style)
-            },
-        );
+        let line = ui::input_line(&tab.url, text_width, focused, |offset| {
+            lit.iter()
+                .find(|(range, _)| range.contains(&offset))
+                .map_or(theme::text(), |(_, style)| *style)
+        });
         spans.extend(line.spans);
     }
-    frame.render_widget(Paragraph::new(Line::from(spans)), inner);
+    let text = Rect {
+        width: method_width + text_width,
+        ..inner
+    };
+    frame.render_widget(Paragraph::new(Line::from(spans)), text.intersection(inner));
 }
 
 /// The scheme and host the URL resolves to, at the end of the URL bar —
@@ -101,7 +135,7 @@ fn destination(app: &App) -> Vec<Span<'static>> {
     vec![Span::styled(host, style)]
 }
 
-pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let focused = app.focus == Pane::Request;
     let describe_source = app.tab().origin.as_ref().map(|_| app.describe(app.tab()));
     let App {
@@ -114,28 +148,40 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let tab = &mut tabs[*active];
 
     let referenced = tab.referenced();
-    let sections = Section::ALL
+    let labels: Vec<String> = Section::ALL
         .iter()
-        .map(|section| {
-            let label = match section {
-                Section::Params => counted("Params", tab.params.rows.len()),
-                Section::Headers => counted("Headers", tab.header_rows().len()),
-                Section::Vars => counted("Vars", referenced.len()),
-                Section::Scripts => counted("Scripts", tab.rules().len()),
-                other => other.label().to_string(),
-            };
-            (label, *section == tab.section)
+        .map(|section| match section {
+            Section::Params => counted("Params", tab.params.rows.len()),
+            Section::Headers => counted("Headers", tab.header_rows().len()),
+            Section::Vars => counted("Vars", referenced.len()),
+            Section::Scripts => counted("Scripts", tab.rules().len()),
+            other => other.label().to_string(),
         })
         .collect();
-    let counter = match tab.section {
-        Section::Body => vec![Span::styled(tab.body_kind.label(), theme::counter())],
-        Section::Auth => vec![Span::styled(tab.auth.kind.label(), theme::counter())],
-        _ => Vec::new(),
+    let spots = ui::section_spots(area, labels.iter().map(String::as_str));
+    let sections = labels
+        .into_iter()
+        .zip(Section::ALL)
+        .map(|(label, section)| (label, section == tab.section))
+        .collect();
+    let kind = match tab.section {
+        Section::Body => Some(tab.body_kind.label()),
+        Section::Auth => Some(tab.auth.kind.label()),
+        _ => None,
     };
+    let counter = kind.map_or_else(Vec::new, |label| vec![Span::styled(label, theme::counter())]);
 
     let block = ui::tabbed_pane(sections, counter, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    targets.add(area, Target::Pane(Pane::Request));
+    for (spot, section) in spots.into_iter().zip(Section::ALL) {
+        targets.add(spot, Target::Section(section));
+    }
+    if let Some(label) = kind {
+        let width = u16::try_from(UnicodeWidthStr::width(label)).unwrap_or(u16::MAX);
+        targets.add(ui::counter_spot(area, width), Target::Kind);
+    }
     let inner = Rect {
         x: inner.x + 1,
         width: inner.width.saturating_sub(2),
@@ -146,12 +192,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     }
 
     match tab.section {
-        Section::Params => table(frame, &mut tab.params, inner, focused, "a parameter"),
-        Section::Headers => table(frame, &mut tab.headers, inner, focused, "a header"),
-        Section::Body => body(frame, tab, inner, focused),
-        Section::Auth => auth_section(frame, tab, inner, focused),
-        Section::Vars => vars_section(frame, tab, extracted, &referenced, inner, focused),
-        Section::Scripts => scripts(frame, tab, inner, focused),
+        Section::Params => table(frame, &mut tab.params, inner, focused, "a parameter", targets),
+        Section::Headers => table(frame, &mut tab.headers, inner, focused, "a header", targets),
+        Section::Body => body(frame, tab, inner, focused, targets),
+        Section::Auth => auth_section(frame, tab, inner, focused, targets),
+        Section::Vars => vars_section(frame, tab, extracted, &referenced, inner, focused, targets),
+        Section::Scripts => scripts(frame, tab, inner, focused, targets),
         Section::Info => info(frame, tab, extracted, root, describe_source, inner),
     }
 }
@@ -177,7 +223,14 @@ fn masked(name: &str, value: &str) -> String {
 }
 
 /// A table of name–value rows, with the row that adds one at the end.
-fn table(frame: &mut Frame, table: &mut KvTable, area: Rect, focused: bool, noun: &str) {
+fn table(
+    frame: &mut Frame,
+    table: &mut KvTable,
+    area: Rect,
+    focused: bool,
+    noun: &str,
+    targets: &mut Targets,
+) {
     let height = area.height as usize;
     let rows = table.rows.len() + 1;
     table.offset = ui::scroll_offset(table.offset, table.selected, height);
@@ -193,6 +246,7 @@ fn table(frame: &mut Frame, table: &mut KvTable, area: Rect, focused: bool, noun
 
     let mut lines = Vec::with_capacity(height);
     for index in table.offset..(table.offset + height).min(rows) {
+        targets.add(ui::line_at(area, index - table.offset), Target::Row(index));
         let selected = index == table.selected;
         let mut spans = vec![ui::bar(selected, focused)];
 
@@ -255,7 +309,7 @@ fn below_first(area: Rect) -> Rect {
     }
 }
 
-fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
+fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &mut Targets) {
     let editing = tab.editing && focused;
     let extra = match tab.body_kind {
         BodyKind::None => None,
@@ -267,6 +321,7 @@ fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
         Paragraph::new(kind_line(tab.body_kind.label(), focused, extra)),
         Rect { height: 1, ..area },
     );
+    targets.add(ui::line_at(area, 0), Target::Kind);
     let content = below_first(area);
 
     match tab.body_kind {
@@ -274,7 +329,7 @@ fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
             Paragraph::new(Span::styled("Nothing is sent.", theme::dim())),
             content,
         ),
-        kind if kind.is_form() => table(frame, &mut tab.form, content, focused, "a field"),
+        kind if kind.is_form() => table(frame, &mut tab.form, content, focused, "a field", targets),
         _ => {
             tab.body.set_cursor_style(if editing {
                 theme::cursor()
@@ -282,15 +337,17 @@ fn body(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
                 Style::default()
             });
             frame.render_widget(&tab.body, content);
+            targets.add(content, Target::Editor);
         }
     }
 }
 
-fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
+fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &mut Targets) {
     frame.render_widget(
         Paragraph::new(kind_line(tab.auth.kind.label(), focused, None)),
         Rect { height: 1, ..area },
     );
+    targets.add(ui::line_at(area, 0), Target::Kind);
     let content = below_first(area);
 
     let fields = tab.auth.kind.fields();
@@ -306,6 +363,7 @@ fn auth_section(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
     let value_width = (content.width as usize).saturating_sub(LABEL + 3);
     let mut lines = Vec::new();
     for (index, field) in fields.iter().enumerate() {
+        targets.add(ui::line_at(content, index), Target::Row(index));
         let selected = index == tab.auth.selected;
         let mut spans = vec![
             ui::bar(selected, focused),
@@ -353,6 +411,7 @@ fn vars_section(
     names: &[String],
     area: Rect,
     focused: bool,
+    targets: &mut Targets,
 ) {
     if names.is_empty() {
         frame.render_widget(
@@ -392,6 +451,7 @@ fn vars_section(
 
     let mut lines = Vec::new();
     for (index, (name, found)) in rows.iter().enumerate().skip(tab.vars.offset).take(height) {
+        targets.add(ui::line_at(area, index - tab.vars.offset), Target::Row(index));
         let selected = index == tab.vars.selected;
         let mut spans = vec![
             ui::bar(selected, focused),
@@ -421,7 +481,8 @@ fn vars_section(
     frame.render_widget(Paragraph::new(lines), area);
 }
 
-fn scripts(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool) {
+fn scripts(frame: &mut Frame, tab: &mut Tab, area: Rect, focused: bool, targets: &mut Targets) {
+    targets.add(area, Target::Editor);
     let editing = tab.editing && focused;
     let empty = tab.scripts.lines().iter().all(|line| line.trim().is_empty());
     if empty && !editing {

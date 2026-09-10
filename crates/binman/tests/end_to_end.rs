@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use binman::app::overlay::Overlay;
-use binman::app::tab::{Outcome, Section};
+use binman::app::tab::{Outcome, Section, View};
 use binman::app::tree::NodeKind;
 use binman::app::{App, Message, Pane};
 use binman::ui;
 use binman_core::Client;
 use binman_core::history::History;
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use ratatui::style::Color;
@@ -116,6 +116,39 @@ fn typed(app: &mut App, text: &str) {
     }
 }
 
+fn mouse(app: &mut App, kind: MouseEventKind, column: u16, row: u16) {
+    binman::app::mouse::handle(
+        app,
+        MouseEvent {
+            kind,
+            column,
+            row,
+            modifiers: KeyModifiers::NONE,
+        },
+    );
+}
+
+/// Where `text` is first drawn, as column and row. Draws first: a click lands
+/// on what was drawn last, as it does on screen.
+fn locate(app: &mut App, text: &str) -> (u16, u16) {
+    let screen = render(app);
+    screen
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            line.find(text)
+                .map(|at| (line[..at].chars().count() as u16, row as u16))
+        })
+        .unwrap_or_else(|| panic!("{text} is not on screen:\n{screen}"))
+}
+
+/// Clicks the first place `text` is drawn, the way a person aims at what they
+/// read.
+fn click(app: &mut App, text: &str) {
+    let (column, row) = locate(app, text);
+    mouse(app, MouseEventKind::Down(MouseButton::Left), column, row);
+}
+
 fn selected_name(app: &App) -> String {
     match app.tree.selected().map(|node| &node.kind) {
         Some(
@@ -183,12 +216,13 @@ async fn opens_a_request_and_shows_its_response() {
     open(&mut app, "list.http");
     assert_eq!(app.tab().title, "list.http");
 
-    // Before sending, the header names the request and its environment, and
-    // the URL bar says where it will go.
+    // The tab strip names the request, so the header does not; its right end
+    // is the environment picker, and the URL bar says where the request goes.
     let screen = render(&mut app);
     let header = screen.lines().next().unwrap().to_string();
-    assert!(header.contains("users/list.http"), "{header}");
+    assert!(header.contains("binman") && !header.contains("list.http"), "{header}");
     assert!(header.ends_with("default ▾"), "the environment picker: {header}");
+    assert!(screen.lines().nth(1).unwrap().contains("list.http"), "{screen}");
     let url_bar = url_bar(&screen);
     assert!(url_bar.contains("http://127.0.0.1"), "the host it resolves to: {url_bar}");
 
@@ -597,17 +631,118 @@ async fn the_panels_sit_where_v1_put_them() {
 async fn the_header_keeps_the_environment_picker_when_squeezed() {
     let root = collection("narrow");
     write(&root.join(".env"), "BASE=http://127.0.0.1:65000\n");
-    write(&root.join("a-rather-long-request-name.http"), "GET {{BASE}}/users\n");
     let (mut app, _messages) = app(&root);
-    open(&mut app, "a-rather-long-request-name.http");
 
-    let terminal = draw(&mut app, 44, 12);
-    let header: String = (0..44)
+    let terminal = draw(&mut app, 22, 12);
+    let header: String = (0..22)
         .map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string())
         .collect();
-    assert!(header.contains("a-rather-long"), "[{header}]");
-    assert!(header.contains('…'), "the name should have given way: [{header}]");
-    assert!(header.trim_end().ends_with("default ▾"), "[{header}]");
+    assert!(header.starts_with(" ✻"), "[{header}]");
+    assert!(
+        header.trim_end().ends_with("default ▾"),
+        "the name gives way, not the picker: [{header}]"
+    );
+}
+
+#[tokio::test]
+async fn the_mouse_reaches_what_the_keys_do() {
+    let first = serve(|_, _| Reply::new(200).body("first")).await;
+    let second = serve(|_, _| Reply::new(200).body("second")).await;
+    let root = collection("mouse");
+    write(&root.join(".env"), &format!("BASE={}\n", first.url));
+    write(&root.join(".env.staging"), &format!("BASE={}\n", second.url));
+    write(
+        &root.join("users").join("list.http"),
+        "GET {{BASE}}/users\nAccept: */*\n",
+    );
+
+    let (mut app, mut messages) = app(&root);
+    click(&mut app, "users");
+    click(&mut app, "list.http");
+    assert_eq!(app.tab().title, "list.http", "a click in the tree opens it");
+
+    click(&mut app, "Headers");
+    assert_eq!(app.focus, Pane::Request);
+    assert_eq!(app.tab().section, Section::Headers);
+
+    click(&mut app, "default ▾");
+    assert!(matches!(app.overlay, Some(Overlay::Picker(_))), "the picker drops its list");
+    click(&mut app, "staging");
+    assert_eq!(app.tab().env_source().map(|s| s.label.as_str()), Some("staging"));
+
+    click(&mut app, " Send ");
+    settle(&mut app, &mut messages).await;
+    assert_eq!(second.hits(), 1, "staging's server should have been asked");
+    assert_eq!(first.hits(), 0);
+
+    click(&mut app, "Cookies");
+    assert_eq!(app.tab().response.view, View::Cookies);
+
+    click(&mut app, "+");
+    assert_eq!(app.tabs.len(), 2);
+    click(&mut app, "list.http");
+    assert_eq!(app.active, 0, "a click on a tab goes to it");
+}
+
+#[tokio::test]
+async fn a_click_on_the_selected_row_edits_it_and_a_click_away_keeps_it() {
+    let root = collection("mouse-rows");
+    write(&root.join("a.http"), "GET https://example.com/users\nAccept: */*\n");
+    let (mut app, _messages) = app(&root);
+    open(&mut app, "a.http");
+
+    click(&mut app, "Headers");
+    click(&mut app, "Accept");
+    assert!(app.tab().headers.edit.is_some(), "the selected row, clicked, is edited");
+    typed(&mut app, "-Language");
+    click(&mut app, "Params");
+    assert!(app.tab().headers.edit.is_none());
+    assert_eq!(app.tab().headers.rows[0].0, "Accept-Language");
+    assert_eq!(app.tab().section, Section::Params);
+}
+
+#[tokio::test]
+async fn a_click_in_the_url_puts_the_cursor_there() {
+    let root = collection("mouse-url");
+    write(&root.join("a.http"), "GET https://example.com/users\n");
+    let (mut app, _messages) = app(&root);
+    open(&mut app, "a.http");
+
+    click(&mut app, "/users");
+    assert_eq!(app.focus, Pane::Url);
+    assert_eq!(app.tab().url.cursor(), "https://example.com".len());
+}
+
+#[tokio::test]
+async fn the_wheel_scrolls_what_is_under_it() {
+    let body: String = (1..=80).map(|n| format!("line {n}\n")).collect();
+    let server = serve(move |_, _| Reply::new(200).body(&body)).await;
+    let root = collection("wheel");
+    write(&root.join("long.http"), &format!("GET {}/long\n", server.url));
+    let (mut app, mut messages) = app(&root);
+    open(&mut app, "long.http");
+    ctrl(&mut app, 'r');
+    settle(&mut app, &mut messages).await;
+
+    let (column, row) = locate(&mut app, "line 1");
+    assert_eq!(app.focus, Pane::Collections, "the response does not have focus");
+    mouse(&mut app, MouseEventKind::ScrollDown, column, row);
+    assert_eq!(app.tab().response.scroll, 3);
+}
+
+#[tokio::test]
+async fn a_click_away_closes_a_list_and_a_click_on_an_entry_runs_it() {
+    let root = collection("mouse-lists");
+    let (mut app, _messages) = app(&root);
+
+    ctrl(&mut app, 'k');
+    click(&mut app, "quit");
+    assert!(app.overlay.is_none(), "a click away closes the list");
+    assert!(!app.should_quit, "the quit hint is not a button");
+
+    ctrl(&mut app, 'k');
+    click(&mut app, "New tab");
+    assert_eq!(app.tabs.len(), 2);
 }
 
 #[tokio::test]

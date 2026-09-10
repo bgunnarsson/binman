@@ -9,16 +9,17 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use unicode_width::UnicodeWidthStr;
 
+use crate::app::mouse::{Target, Targets};
 use crate::app::tab::{Outcome, Received, Response, View};
 use crate::app::{App, Pane, format_elapsed, size};
 use crate::{pretty, theme, ui};
 
-pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
+pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let focused = app.focus == Pane::Response;
     let response = &mut app.tab_mut().response;
 
     let received = response.received();
-    let sections = View::ALL
+    let sections: Vec<(String, bool)> = View::ALL
         .iter()
         .map(|view| {
             let count = received.map_or(0, |received| match view {
@@ -35,6 +36,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
             (label, *view == response.view)
         })
         .collect();
+    let spots = ui::section_spots(area, sections.iter().map(|(label, _)| label.as_str()));
 
     let counter = match &response.outcome {
         Outcome::Received(received) => {
@@ -66,6 +68,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect) {
     let block = ui::tabbed_pane(sections, counter, focused);
     let inner = block.inner(area);
     frame.render_widget(block, area);
+    targets.add(area, Target::Pane(Pane::Response));
+    for (spot, view) in spots.into_iter().zip(View::ALL) {
+        targets.add(spot, Target::View(view));
+    }
     let inner = Rect {
         x: inner.x + 1,
         width: inner.width.saturating_sub(2),

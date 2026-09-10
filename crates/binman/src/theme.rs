@@ -178,6 +178,14 @@ pub fn env_picker(active: bool) -> Style {
     }
 }
 
+/// The URL bar's button: Send, or Cancel while the request is out.
+pub fn send_button(sending: bool) -> Style {
+    Style::default()
+        .bg(SURFACE)
+        .fg(if sending { WARNING } else { ACCENT_SECONDARY })
+        .add_modifier(Modifier::BOLD)
+}
+
 pub fn tab(active: bool) -> Style {
     if active {
         Style::default()
