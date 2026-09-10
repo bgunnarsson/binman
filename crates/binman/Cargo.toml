@@ -4,7 +4,7 @@ description = "An HTTP client for the terminal."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-license.workspace = true
+license-file.workspace = true
 repository.workspace = true
 
 [lib]
