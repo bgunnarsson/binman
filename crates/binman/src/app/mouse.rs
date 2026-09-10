@@ -187,7 +187,7 @@ fn click_overlay(app: &mut App, target: Option<Target>) {
         },
         // An editor or a prompt holds typing that a stray click must not
         // throw away.
-        Some(Overlay::Env(_) | Overlay::SaveResponse(_)) | None => {}
+        Some(Overlay::Env(_) | Overlay::SaveRequest(_) | Overlay::SaveResponse(_)) | None => {}
     }
 }
 

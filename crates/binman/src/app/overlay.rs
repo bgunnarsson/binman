@@ -1,5 +1,6 @@
 //! The things that draw on top of the layout: the greeting, help, the pickers,
-//! the environment editor, and the prompt for where to save a response.
+//! the environment editor, and the prompts for where to save a request or a
+//! response.
 
 use std::path::PathBuf;
 
@@ -16,6 +17,8 @@ pub enum Overlay {
     Picker(Picker),
     /// Boxed: an editor is far larger than anything else here.
     Env(Box<EnvEditor>),
+    /// Where to write a request that has no file yet.
+    SaveRequest(SavePrompt),
     SaveResponse(SavePrompt),
     /// The request as a curl command, to read or select.
     Curl(String),
@@ -33,6 +36,7 @@ pub enum Command {
     EditEnv,
     CopyCurl,
     Save,
+    SaveAs,
     SaveResponse,
     Reload,
     Help,
@@ -52,6 +56,7 @@ impl Command {
             Command::EditEnv => "Edit the environment file…",
             Command::CopyCurl => "Copy as cURL",
             Command::Save => "Save the request",
+            Command::SaveAs => "Save the request to a file…",
             Command::SaveResponse => "Save the response…",
             Command::Reload => "Reload the collections",
             Command::Help => "Help",
@@ -69,7 +74,7 @@ impl Command {
             Command::History => "⌃H",
             Command::Environments => "⌃E",
             Command::CopyCurl => "⌃Y",
-            Command::Save => "⌃S",
+            Command::Save | Command::SaveAs => "⌃S",
             Command::Reload => "F5",
             Command::Help => "F1",
             Command::Quit => "⌃Q",

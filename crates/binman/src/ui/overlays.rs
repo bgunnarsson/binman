@@ -19,7 +19,12 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
         Some(Overlay::Help) => help(frame, area),
         Some(Overlay::Picker(picker)) => picker_box(frame, picker, area, targets),
         Some(Overlay::Env(editor)) => env_editor(frame, editor, area),
-        Some(Overlay::SaveResponse(prompt)) => save_prompt(frame, prompt, area),
+        Some(Overlay::SaveRequest(prompt)) => {
+            save_prompt(frame, prompt, area, "Save the request to");
+        }
+        Some(Overlay::SaveResponse(prompt)) => {
+            save_prompt(frame, prompt, area, "Save the response to");
+        }
         Some(Overlay::Curl(command)) => curl(frame, command, area),
     }
 }
@@ -506,7 +511,7 @@ fn env_editor(frame: &mut Frame, editor: &mut EnvEditor, area: Rect) {
 
 const MIN_PROMPT_WIDTH: u16 = 64;
 
-fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect) {
+fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect, title: &str) {
     let width = (area.width * 70 / 100).clamp(MIN_PROMPT_WIDTH.min(area.width), 110);
     let field_width = width.saturating_sub(BORDERS + PADDING as u16 * 2);
 
@@ -524,11 +529,7 @@ fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect) {
     lines.push(hints(&[("↵", "save"), ("Esc", "cancel")]));
 
     let height = saturating_u16(lines.len()) + BORDERS;
-    let inner = frame_for(
-        frame,
-        ui::centered_size(area, width, height),
-        "Save the response to",
-    );
+    let inner = frame_for(frame, ui::centered_size(area, width, height), title);
     frame.render_widget(Paragraph::new(lines), padded(inner));
 }
 
