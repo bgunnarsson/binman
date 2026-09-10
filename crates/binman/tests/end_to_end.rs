@@ -92,6 +92,12 @@ fn render(app: &mut App) -> String {
         .join("\n")
 }
 
+/// The URL bar's top border, which carries the host the URL resolves to. It
+/// sits under the header and the tab strip.
+fn url_bar(screen: &str) -> String {
+    screen.lines().nth(2).unwrap_or_default().to_string()
+}
+
 fn press(app: &mut App, code: KeyCode) {
     binman::app::keys::handle(app, KeyEvent::new(code, KeyModifiers::NONE));
 }
@@ -177,12 +183,14 @@ async fn opens_a_request_and_shows_its_response() {
     open(&mut app, "list.http");
     assert_eq!(app.tab().title, "list.http");
 
-    // Before sending, the header already says where it will go.
+    // Before sending, the header names the request and its environment, and
+    // the URL bar says where it will go.
     let screen = render(&mut app);
     let header = screen.lines().next().unwrap().to_string();
     assert!(header.contains("users/list.http"), "{header}");
-    assert!(header.contains("default"), "the environment is named: {header}");
-    assert!(header.contains("http://127.0.0.1"), "the host it resolves to: {header}");
+    assert!(header.ends_with("default ▾"), "the environment picker: {header}");
+    let url_bar = url_bar(&screen);
+    assert!(url_bar.contains("http://127.0.0.1"), "the host it resolves to: {url_bar}");
 
     ctrl(&mut app, 'r');
     settle(&mut app, &mut messages).await;
@@ -419,10 +427,10 @@ async fn collections_and_specs_open_as_trees_of_requests() {
     open(&mut app, "Login");
     assert_eq!(app.tab().method, "POST");
     assert_eq!(app.tab().url.text(), "{{BASE}}/login");
-    let header = render(&mut app).lines().next().unwrap().to_string();
+    let url_bar = url_bar(&render(&mut app));
     assert!(
-        header.contains("https://api.example.com"),
-        "the collection's own variables resolve: {header}"
+        url_bar.contains("https://api.example.com"),
+        "the collection's own variables resolve: {url_bar}"
     );
 
     select(&mut app, "openapi.yaml");
@@ -547,19 +555,75 @@ async fn the_splash_falls_back_in_a_narrow_terminal() {
 }
 
 #[tokio::test]
-async fn the_header_keeps_the_request_over_the_host_when_squeezed() {
-    let root = collection("narrow");
+async fn the_panels_sit_where_v1_put_them() {
+    let root = collection("layout");
     write(&root.join(".env"), "BASE=http://127.0.0.1:65000\n");
     write(&root.join("list.http"), "GET {{BASE}}/users\n");
     let (mut app, _messages) = app(&root);
     open(&mut app, "list.http");
 
+    let screen = render(&mut app);
+    println!("\n{screen}\n");
+    let rows: Vec<Vec<char>> = screen.lines().map(|line| line.chars().collect()).collect();
+    let row_of = |needle: &str| {
+        screen
+            .lines()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} not drawn:\n{screen}"))
+    };
+
+    // The URL bar runs the whole width, above the collections.
+    let url = row_of("GET {{BASE}}/users") - 1;
+    assert_eq!(rows[url].first(), Some(&'╭'), "{screen}");
+    assert_eq!(rows[url].get(WIDTH as usize - 1), Some(&'╮'), "{screen}");
+    let collections = row_of("Collections");
+    assert_eq!(collections, url + 3, "the collections start under the URL bar:\n{screen}");
+
+    // The collections are v1's 48 wide, beside the request over the response.
+    assert_eq!(rows[collections].get(47), Some(&'╮'), "{screen}");
+    assert_eq!(rows[collections].get(48), Some(&'╭'), "{screen}");
+    let request = row_of("Params");
+    let response = row_of("Cookies");
+    assert_eq!(request, collections, "{screen}");
+    let request_rows = (response - request) as f64;
+    let response_rows = (HEIGHT as usize - 1 - response) as f64;
+    assert!(
+        (response_rows / request_rows - 2.5).abs() < 0.3,
+        "request and response should split two to five:\n{screen}"
+    );
+}
+
+#[tokio::test]
+async fn the_header_keeps_the_environment_picker_when_squeezed() {
+    let root = collection("narrow");
+    write(&root.join(".env"), "BASE=http://127.0.0.1:65000\n");
+    write(&root.join("a-rather-long-request-name.http"), "GET {{BASE}}/users\n");
+    let (mut app, _messages) = app(&root);
+    open(&mut app, "a-rather-long-request-name.http");
+
     let terminal = draw(&mut app, 44, 12);
     let header: String = (0..44)
         .map(|x| terminal.backend().buffer()[(x, 0)].symbol().to_string())
         .collect();
-    assert!(header.contains("list.http"), "[{header}]");
-    assert!(!header.contains("127.0.0.1"), "the host should have given way: [{header}]");
+    assert!(header.contains("a-rather-long"), "[{header}]");
+    assert!(header.contains('…'), "the name should have given way: [{header}]");
+    assert!(header.trim_end().ends_with("default ▾"), "[{header}]");
+}
+
+#[tokio::test]
+async fn the_environment_list_drops_from_the_picker() {
+    let root = collection("dropdown");
+    write(&root.join(".env"), "A=1\n");
+    write(&root.join(".env.staging"), "A=2\n");
+    let (mut app, _messages) = app(&root);
+    assert!(render(&mut app).lines().next().unwrap().ends_with("default ▾"));
+
+    ctrl(&mut app, 'e');
+    let screen = render(&mut app);
+    println!("\n{screen}\n");
+    let rows: Vec<&str> = screen.lines().collect();
+    assert!(rows[1].contains("Environments"), "the list hangs under the header:\n{screen}");
+    assert!(rows[1].ends_with("╮"), "flush with the picker's right end:\n{screen}");
 }
 
 /// Relative luminance, per WCAG.
@@ -666,23 +730,34 @@ async fn every_modal_hugs_its_content() {
         binman::app::keys::handle(&mut app, opener);
         assert!(app.overlay.is_some(), "{what} did not open");
         let screen = render(&mut app);
-        let rows: Vec<&str> = screen.lines().collect();
-        let top = rows
-            .iter()
+        let rows: Vec<Vec<char>> = screen.lines().map(|line| line.chars().collect()).collect();
+        let top = screen
+            .lines()
             .position(|line| line.contains(title))
             .unwrap_or_else(|| panic!("{what} not drawn:\n{screen}"));
-        let bottom = rows
+
+        // The modal's own corners, found from its title: the panes around
+        // it have borders of their own in the same rows.
+        let line = screen.lines().nth(top).unwrap();
+        let title_at = line[..line.find(title).unwrap()].chars().count();
+        let left = rows[top][..title_at]
             .iter()
-            .skip(top)
-            .position(|line| line.contains('╰'))
-            .unwrap_or_else(|| panic!("{what} not closed:\n{screen}"))
-            + top;
+            .rposition(|c| *c == '╭')
+            .unwrap_or_else(|| panic!("{what} has no corner:\n{screen}"));
+        let right = rows[top][left..]
+            .iter()
+            .position(|c| *c == '╮')
+            .unwrap_or_else(|| panic!("{what} has no corner:\n{screen}"))
+            + left;
+        let bottom = (top + 1..rows.len())
+            .find(|&row| rows[row].get(left) == Some(&'╰'))
+            .unwrap_or_else(|| panic!("{what} not closed:\n{screen}"));
 
         let blank_rows = rows[top + 1..bottom]
             .iter()
-            .filter(|line| {
-                let inside: String = line.chars().skip_while(|c| *c != '│').collect();
-                inside.trim_matches(|c| c == '│' || c == ' ').is_empty()
+            .filter(|row| {
+                row.get(left + 1..right)
+                    .is_none_or(|inside| inside.iter().all(|c| c.is_whitespace()))
             })
             .count();
         let inner_rows = bottom - top - 1;

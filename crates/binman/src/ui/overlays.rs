@@ -314,7 +314,8 @@ const MIN_PICKER_WIDTH: u16 = 56;
 /// A list to choose from: the command palette, the request search, the
 /// history, the environments. Pinned near the top rather than centred, so a
 /// list that shrinks as the query narrows it grows and shrinks downwards
-/// instead of sliding the prompt under the cursor.
+/// instead of sliding the prompt under the cursor. The environments drop from
+/// the picker in the header instead, as v1's dropdown did.
 fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
     const FROM_TOP: u16 = 3;
     /// Enough to choose from without the box owning the screen.
@@ -342,9 +343,14 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
         .min(ceiling.saturating_sub(12).max(12));
     let offset = ui::scroll_offset(0, picker.selected, rows);
 
+    let mut entries = Vec::with_capacity(rows);
+    let mut selected_row = None;
     for (position, &index) in matches.iter().enumerate().skip(offset).take(rows) {
         let entry = &picker.entries[index];
         let selected = position == picker.selected;
+        if selected {
+            selected_row = Some(entries.len());
+        }
         let mut spans = vec![ui::bar(selected, true), Span::raw(" ")];
         if picker.kind != PickerKind::Commands && picker.kind != PickerKind::Environments {
             spans.push(badge(entry.method.as_deref()));
@@ -359,13 +365,22 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
         if !entry.hint.is_empty() {
             spans.push(Span::styled(format!("  {}", entry.hint), theme::dim()));
         }
-        let line = Line::from(spans);
-        lines.push(if selected {
-            ui::highlight(line, true, saturating_u16(ceiling))
-        } else {
-            line
-        });
+        entries.push(Line::from(spans));
     }
+
+    // A list that filters keeps its width as the query narrows it; the
+    // environments do not filter, so their dropdown hugs what it holds.
+    let row_width = if picker.kind.filters() {
+        ceiling
+    } else {
+        block_width(&entries).min(ceiling)
+    };
+    if let Some(row) = selected_row {
+        let line = std::mem::take(&mut entries[row]);
+        entries[row] = ui::highlight(line, true, saturating_u16(row_width));
+    }
+    lines.extend(entries);
+
     if matches.is_empty() {
         lines.push(Line::from(Span::styled("  No match", theme::dim())));
     }
@@ -374,21 +389,28 @@ fn picker_box(frame: &mut Frame, picker: &Picker, area: Rect) {
         lines.push(hints(&[("↵", "use"), ("e", "edit the file"), ("Esc", "close")]));
     }
 
-    let width = saturating_u16(
+    let mut width = saturating_u16(
         block_width(&lines)
             .min(ceiling)
             .saturating_add(BORDERS as usize + PADDING * 2),
-    )
-    .max(MIN_PICKER_WIDTH);
+    );
+    if picker.kind.filters() {
+        width = width.max(MIN_PICKER_WIDTH);
+    }
     let height = saturating_u16(lines.len()) + BORDERS;
     let position = if matches.is_empty() {
         0
     } else {
         picker.selected + 1
     };
+    let placed = if picker.kind == PickerKind::Environments {
+        ui::dropdown_size(area, width, height)
+    } else {
+        ui::anchored_size(area, width, height, FROM_TOP)
+    };
     let inner = frame_for_counted(
         frame,
-        ui::anchored_size(area, width, height, FROM_TOP),
+        placed,
         picker.kind.title(),
         format!("{position}/{}", matches.len()),
     );
