@@ -242,8 +242,8 @@ mod tests {
     use super::*;
     use crate::testing;
 
-    fn collection() -> PathBuf {
-        let root = testing::scratch("collection");
+    fn collection(label: &str) -> PathBuf {
+        let root = testing::scratch(label);
         testing::write(
             &root.join("users").join("list.http"),
             "# list\nGET https://x/users\n",
@@ -281,7 +281,7 @@ mod tests {
 
     #[test]
     fn lists_what_binman_can_open_directories_first() {
-        let root = collection();
+        let root = collection("collection-list");
         let names: Vec<String> = list(&root)
             .unwrap()
             .into_iter()
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn hides_what_bruno_keeps_beside_its_requests() {
-        let root = collection();
+        let root = collection("collection-bruno");
         let names: Vec<String> = list(&root.join("bruno"))
             .unwrap()
             .into_iter()
@@ -312,7 +312,7 @@ mod tests {
 
     #[test]
     fn reads_a_method_without_parsing_the_file() {
-        let root = collection();
+        let root = collection("collection-method");
         assert_eq!(
             method_of(&root.join("users/list.http"), Format::Http).as_deref(),
             Some("GET")
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn indexes_every_request_including_those_inside_collections() {
-        let root = collection();
+        let root = collection("collection-index");
         let found: Vec<(String, String, String)> = index(&root)
             .into_iter()
             .map(|found| (found.method, found.title, found.location))
