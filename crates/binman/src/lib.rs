@@ -5,5 +5,6 @@
 
 pub mod app;
 pub mod pretty;
+pub mod send;
 pub mod theme;
 pub mod ui;

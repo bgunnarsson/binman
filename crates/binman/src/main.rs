@@ -14,17 +14,23 @@ use crossterm::event::{
 use futures_util::StreamExt;
 
 use binman::app::{self, App, keys, mouse};
-use binman::ui;
+use binman::{send, ui};
 
 const HELP: &str = "\
 binman — an HTTP client for the terminal
 
 USAGE
     binman              open the collections in HTTP_FILES
+    binman send <file>  send one request and print the response
 
 OPTIONS
     -h, --help          show this
     -V, --version       show the version
+
+SEND
+    --env NAME          the environment to use; the first found when left out
+    --var NAME=VALUE    a value for a variable, above every other
+    -i, --include       the status line and headers ahead of the body
 
 CONFIG
     ~/.config/binman/config, or $XDG_CONFIG_HOME/binman/config:
@@ -37,8 +43,10 @@ CONFIG
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    if let Some(arg) = std::env::args().nth(1) {
-        match arg.as_str() {
+    let mut args = std::env::args().skip(1);
+    let sending = match args.next() {
+        None => None,
+        Some(arg) => match arg.as_str() {
             "-h" | "--help" => {
                 print!("{HELP}");
                 return Ok(());
@@ -47,13 +55,14 @@ async fn main() -> Result<()> {
                 println!("binman {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
+            "send" => Some(send::Options::parse(args)?),
             other if other.starts_with('-') => bail!("Unknown option {other}. Try --help."),
             other => bail!(
                 "Unexpected argument {other}: binman reads its collections from HTTP_FILES in {}. Try --help.",
                 Config::path().display()
             ),
-        }
-    }
+        },
+    };
 
     let config = Config::load()?;
     let root = config.root.canonicalize().with_context(|| {
@@ -71,8 +80,21 @@ async fn main() -> Result<()> {
         );
     }
     let client = Client::new(&config)?;
+    let history = History::at(History::default_path());
 
-    let (mut app, mut messages) = App::new(root, client, History::at(History::default_path()));
+    if let Some(options) = sending {
+        return send::run(
+            &options,
+            &root,
+            &client,
+            &history,
+            &mut std::io::stdout(),
+            &mut std::io::stderr(),
+        )
+        .await;
+    }
+
+    let (mut app, mut messages) = App::new(root, client, history);
     app.show_splash();
 
     let mut terminal = ratatui::init();

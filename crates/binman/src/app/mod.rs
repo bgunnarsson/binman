@@ -1031,7 +1031,11 @@ impl App {
 /// The request as it will go on the wire: every variable resolved, the body
 /// encoded, the auth header added. Refuses, sending nothing, when the URL still
 /// names a variable nothing defines — it could only go somewhere wrong.
-fn prepare(tab: &Tab, extracted: &Vars, root: &Path) -> Result<(Prepared, Option<Grant>), String> {
+pub(crate) fn prepare(
+    tab: &Tab,
+    extracted: &Vars,
+    root: &Path,
+) -> Result<(Prepared, Option<Grant>), String> {
     let scope = tab.scope(extracted);
     let url = scope.resolve(tab.url.text().trim());
     if url.is_empty() {
@@ -1105,7 +1109,7 @@ fn prepare(tab: &Tab, extracted: &Vars, root: &Path) -> Result<(Prepared, Option
     ))
 }
 
-async fn exchange(
+pub(crate) async fn exchange(
     client: &Client,
     mut prepared: Prepared,
     grant: Option<Grant>,
@@ -1135,7 +1139,7 @@ async fn exchange(
 
 /// Best effort, as in v1: a history that cannot be written must not cost the
 /// response.
-fn record(history: &History, sent: &Prepared, status: u16, duration: Duration) {
+pub(crate) fn record(history: &History, sent: &Prepared, status: u16, duration: Duration) {
     let _ = history.append(&history::Entry::new(
         &sent.method,
         &sent.url,

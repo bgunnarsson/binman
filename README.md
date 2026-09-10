@@ -183,6 +183,24 @@ Every send is appended to `~/.local/state/binman/history.jsonl`, or under
 `$XDG_STATE_HOME` when that is set. `⌃H` lists the last 50 and `Enter` sends
 one again. Requests are stored with variables resolved, tokens included.
 
+## Sending from a script
+
+```sh
+binman send collections/users/get.http --env staging --var ID=42
+```
+
+`binman send` sends one `.http`, `.bru` or `.graphql` file the way the terminal
+front end would, with the same config, environments and variables. A `--var`
+value takes the place of one typed under **Vars**, and without `--env` the
+first environment found is used. The status line goes to stderr and the body to
+stdout; `-i` puts the status line and headers on stdout ahead of the body, as
+curl's does.
+
+A variable the request names but nothing sets stops it before anything is
+sent. It exits non-zero then, and when the server cannot be reached; an HTTP
+error status is still a response and exits 0. Extraction rules are not run, an
+event stream is printed once it closes, and the send goes in the history.
+
 ## Keys
 
 | | |
@@ -240,7 +258,6 @@ rendered screen.
 
 ## Not done yet
 
-- A command mode for scripts, such as `binman send`.
 - The Homebrew tap has not been updated for this version.
 
 ## Licence
