@@ -21,7 +21,7 @@ jobs:
     name: Test
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # A tag that disagrees with the crate is a release that reports the wrong
       # version for the rest of its life, and there is no fixing it after the
@@ -81,7 +81,7 @@ jobs:
             extension: .exe
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Toolchain
         run: |
@@ -116,7 +116,7 @@ jobs:
         shell: bash
         run: 7z a "${STAGING}.zip" "$STAGING"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.platform }}
           path: |
@@ -131,9 +131,9 @@ jobs:
     if: github.ref_type == 'tag'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
