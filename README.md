@@ -38,14 +38,25 @@ three keys worth knowing. Any key dismisses it.
 
 ## Install
 
+Each release carries a build for macOS, Linux and Windows on
+[the releases page](https://github.com/bgunnarsson/binman/releases), with a
+`checksums.txt` beside them:
+
+```sh
+tar -xzf binman-2.0.0-darwin-arm64.tar.gz
+sudo mv binman-2.0.0-darwin-arm64/binman /usr/local/bin/
+```
+
+Or from source:
+
 ```sh
 cargo build --release
 # the binary lands at target/release/binman
 ```
 
-Rust 1.90 or newer, and a Nerd Font in your terminal — binman draws the tree
-with the same glyphs binvim and binsql do. Without one the icons render as
-boxes; nothing else is affected.
+Rust 1.90 or newer to build, and a Nerd Font in your terminal either way —
+binman draws the tree with the same glyphs binvim and binsql do. Without one
+the icons render as boxes; nothing else is affected.
 
 ## Configure
 
@@ -354,9 +365,9 @@ Some of these fix v1 bugs; the rest follow binsql.
 
 ### Not carried across yet
 
-- **Release packaging.** v1's build, release and Homebrew scripts are under
-  `_old/scripts` and build the Go version. There are no prebuilt v2 binaries
-  yet.
+- **The Homebrew tap.** Releases are built by GitHub Actions when a `v*` tag
+  is pushed, but the tap's formula and `_old/scripts/pkg-homebrew.sh` are
+  v1's: the formula builds `./cmd/binman` with Go, which v2 does not have.
 - **A command mode** — `binman send`, for scripts and agents, the way binsql
   has `query`, `exec` and `inspect`. The core is a library so it can be added.
 - **Saving a request that has no file** — a new tab, a replay from history —

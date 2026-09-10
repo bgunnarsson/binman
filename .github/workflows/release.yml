@@ -1,0 +1,153 @@
+name: Release
+
+# Tagging is the trigger. A release is something you make by tagging a commit,
+# not by remembering to run a script on whichever laptop has the toolchains —
+# which is what the Go build could get away with and this one cannot.
+on:
+  push:
+    tags: ["v*"]
+  # Run by hand to prove the five builds still work without publishing
+  # anything. A first tag should not be the first time this has ever run.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: Test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # A tag that disagrees with the crate is a release that reports the wrong
+      # version for the rest of its life, and there is no fixing it after the
+      # fact — only another release.
+      - name: The tag and Cargo.toml have to agree
+        run: |
+          crate=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "Dry run of ${crate}; nothing will be published."
+            exit 0
+          fi
+          tag="${GITHUB_REF_NAME#v}"
+          if [ "$tag" != "$crate" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} means ${tag}, Cargo.toml says ${crate}"
+            exit 1
+          fi
+          echo "Releasing ${crate}"
+
+      - name: Toolchain
+        run: rustup toolchain install stable --profile minimal --component clippy,rustfmt
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+
+  build:
+    name: ${{ matrix.platform }}
+    needs: check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One target failing should not hide whether the other four would have
+      # worked; the release is refused either way.
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            os: macos-14
+            target: aarch64-apple-darwin
+          # Apple ships both SDKs, so the Intel build is a cross-compile that
+          # needs nothing but the target added.
+          - platform: darwin-amd64
+            os: macos-14
+            target: x86_64-apple-darwin
+          # 22.04 rather than the newest: the binary links against the runner's
+          # glibc, and building on the older one is what lets it run on both.
+          - platform: linux-amd64
+            os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          # A native arm runner, which is free for public repositories and
+          # spares us a cross toolchain for ring.
+          - platform: linux-arm64
+            os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+          - platform: windows-amd64
+            os: windows-2022
+            target: x86_64-pc-windows-msvc
+            extension: .exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup target add ${{ matrix.target }}
+
+      - name: Build
+        run: cargo build --release --locked --bin binman --target ${{ matrix.target }}
+
+      # An archive that unpacks into a directory cannot overwrite anything in
+      # the one it was unpacked in.
+      - name: Stage
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          fi
+          staging="binman-${version}-${{ matrix.platform }}"
+          mkdir "$staging"
+          cp "target/${{ matrix.target }}/release/binman${{ matrix.extension }}" "$staging/"
+          cp README.md LICENSE "$staging/"
+          echo "STAGING=$staging" >> "$GITHUB_ENV"
+
+      - name: Archive
+        if: runner.os != 'Windows'
+        run: tar -czf "${STAGING}.tar.gz" "$STAGING"
+
+      - name: Archive
+        if: runner.os == 'Windows'
+        shell: bash
+        run: 7z a "${STAGING}.zip" "$STAGING"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: |
+            *.tar.gz
+            *.zip
+          if-no-files-found: error
+
+  publish:
+    needs: build
+    # Only a tag publishes. A dry run stops with five archives attached to the
+    # workflow run, which is the whole point of being able to do one.
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz *.zip > checksums.txt
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
+            --title "binman ${GITHUB_REF_NAME#v}" \
+            --generate-notes \
+            dist/*
