@@ -163,6 +163,13 @@ OAuth2 client credentials. An OAuth2 token is fetched before the request and
 reused until 30 seconds before it expires, or for an hour when the endpoint
 does not say. Fields whose names contain `secret` or `password` are masked.
 
+A `.bru` file's `auth:bearer`, `auth:basic`, `auth:apikey` and `auth:oauth2`
+blocks open in the section, and saving writes it back to them. The block in
+force is the one the `auth:` line names. An API key sent in the query string,
+an OAuth2 grant other than client credentials, and `inherit` open as no auth
+and are left in the file as they are. A `.http` file has no place for auth, so
+there it is not saved — an `Authorization` header is.
+
 ## cURL
 
 Paste a curl command into the URL bar and press `Enter` to import it; a
@@ -210,8 +217,8 @@ scrolls, and a middle click closes a tab. Hold Shift (Option in iTerm2) to
 select text.
 
 Opening a request reuses the current tab unless it has edits (`•`) or a request
-in flight (`◐`). Auth values, extraction rules and typed variables do not count
-as edits, and are lost when the tab is reused.
+in flight (`◐`). Extraction rules and typed variables do not count as edits, and
+are lost when the tab is reused.
 
 ## Design
 
@@ -234,7 +241,6 @@ rendered screen.
 ## Not done yet
 
 - A command mode for scripts, such as `binman send`.
-- Reading or writing auth settings in request files.
 - The Homebrew tap has not been updated for this version.
 
 ## Licence

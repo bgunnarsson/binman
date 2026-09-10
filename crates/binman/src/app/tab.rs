@@ -11,7 +11,7 @@ use binman_core::body::{self, BodyKind};
 use binman_core::extract::{self, Rule};
 use binman_core::vars::{self, Scope, Vars};
 use binman_core::{
-    AuthKind, EnvSource, Exchange, Loaded, METHODS, Origin, Prepared, Request, query,
+    Auth, AuthKind, EnvSource, Exchange, Loaded, METHODS, Origin, Prepared, Request, query,
 };
 use ratatui::style::Style;
 use ratatui::text::Line;
@@ -122,6 +122,26 @@ impl Default for AuthForm {
 }
 
 impl AuthForm {
+    /// The section filled from what a file says.
+    fn loaded(auth: &Auth) -> AuthForm {
+        let mut form = AuthForm {
+            kind: auth.kind,
+            ..AuthForm::default()
+        };
+        for (index, value) in auth.values.iter().enumerate() {
+            form.values.insert((auth.kind, index), value.clone());
+        }
+        form
+    }
+
+    /// The kind in use and its values, as a file holds them.
+    pub fn auth(&self) -> Auth {
+        Auth {
+            kind: self.kind,
+            values: self.values(),
+        }
+    }
+
     pub fn value(&self, index: usize) -> &str {
         self.values
             .get(&(self.kind, index))
@@ -264,6 +284,7 @@ struct Snapshot {
     headers: Vec<(String, String)>,
     kind: BodyKind,
     body: String,
+    auth: Auth,
 }
 
 pub struct Tab {
@@ -345,15 +366,16 @@ impl Tab {
                 headers: Vec::new(),
                 kind: BodyKind::None,
                 body: String::new(),
+                auth: Auth::default(),
             },
         };
         tab.mark_saved();
         tab
     }
 
-    /// Fills the tab from a request read from disk. What belonged to the
-    /// request it replaces — its auth, its rules, its overrides, its response
-    /// — goes with it.
+    /// Fills the tab from a request read from disk, auth included. What
+    /// belonged to the request it replaces — its rules, its overrides, its
+    /// response — goes with it.
     pub fn load(
         &mut self,
         loaded: Loaded,
@@ -368,7 +390,7 @@ impl Tab {
         self.collection_vars = loaded.collection_vars;
         self.envs = envs;
         self.env = env;
-        self.auth = AuthForm::default();
+        self.auth = AuthForm::loaded(&loaded.request.auth);
         self.scripts = scripts_editor();
         self.overrides.clear();
         self.vars = VarsView::default();
@@ -406,6 +428,7 @@ impl Tab {
             headers: self.header_rows(),
             kind: self.body_kind,
             body: self.body_text(),
+            auth: self.auth.auth(),
         }
     }
 
@@ -445,6 +468,7 @@ impl Tab {
             body: self.body_text(),
             kind: Some(self.body_kind),
             vars: self.file_vars.clone(),
+            auth: self.auth.auth(),
         }
     }
 

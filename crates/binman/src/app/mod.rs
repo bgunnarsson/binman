@@ -498,7 +498,14 @@ impl App {
             Ok(()) => {
                 self.tab_mut().mark_saved();
                 let name = collection::relative(&self.root, origin.path());
-                self.success(format!("Saved {name}"));
+                if origin.savable() == Some(Format::Http) && self.tab().auth.kind != AuthKind::None
+                {
+                    self.warn(format!(
+                        "Saved {name} — without the auth, which a .http file has no place for"
+                    ));
+                } else {
+                    self.success(format!("Saved {name}"));
+                }
             }
             Err(error) => self.error(error.to_string()),
         }

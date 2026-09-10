@@ -7,8 +7,9 @@
 
 use base64::Engine;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub enum AuthKind {
+    #[default]
     None,
     Bearer,
     Basic,
@@ -50,6 +51,13 @@ impl AuthKind {
         let next = (position + delta).rem_euclid(Self::ALL.len() as isize);
         Self::ALL[next as usize]
     }
+}
+
+/// An auth kind and its values, in [`AuthKind::fields`] order.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Auth {
+    pub kind: AuthKind,
+    pub values: Vec<String>,
 }
 
 /// Whether a field holds something that should not be read over a shoulder.

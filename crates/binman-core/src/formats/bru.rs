@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
+use crate::auth::{Auth, AuthKind};
 use crate::body::{self, BodyKind};
 use crate::error::Result;
 use crate::paths::lineage;
@@ -169,13 +170,19 @@ pub fn parse(text: &str) -> Request {
     let mut request = Request::default();
     let mut graphql = None;
     let mut graphql_vars = None;
+    let mut auth = None;
+    let mut auth_blocks = Vec::new();
 
     for block in blocks(&lines) {
         let name = block.name.to_ascii_lowercase();
         if is_method_block(&name) {
             request.method = name.to_ascii_uppercase();
-            if let Some((_, url)) = pairs(block.lines).into_iter().find(|(key, _)| key == "url") {
-                request.url = url;
+            for (key, value) in pairs(block.lines) {
+                match key.as_str() {
+                    "url" => request.url = value,
+                    "auth" => auth = Some(value),
+                    _ => {}
+                }
             }
             continue;
         }
@@ -187,7 +194,9 @@ pub fn parse(text: &str) -> Request {
             "body:graphql" => graphql = Some(dedent(block.lines)),
             "body:graphql:vars" => graphql_vars = Some(dedent(block.lines)),
             other => {
-                if let Some(kind) = other.strip_prefix("body:").and_then(kind_of_mode) {
+                if let Some(mode) = other.strip_prefix("auth:") {
+                    auth_blocks.push((mode.to_string(), pairs(block.lines)));
+                } else if let Some(kind) = other.strip_prefix("body:").and_then(kind_of_mode) {
                     request.kind = Some(kind);
                     request.body = if kind.is_form() {
                         body::encode_form(&form_fields(block.lines))
@@ -211,6 +220,14 @@ pub fn parse(text: &str) -> Request {
         }
         request.body = Value::Object(payload).to_string();
         request.kind = Some(BodyKind::Json);
+    }
+
+    // The method block's `auth:` line says which block is in force; the
+    // others are what Bruno remembers of kinds switched away from.
+    if let Some(mode) = auth
+        && let Some((_, block)) = auth_blocks.iter().find(|(name, _)| *name == mode)
+    {
+        request.auth = read_auth(&mode, block);
     }
     request
 }
@@ -274,10 +291,14 @@ pub fn environments(dir: &Path, root: &Path) -> Vec<(String, PathBuf)> {
 
 /// A `.bru` file for a request that has no file yet.
 pub fn format(request: &Request, kind: BodyKind) -> String {
-    let mut out = method_block(None, request, kind, true);
+    let mut out = method_block(None, request, kind, true, true);
     if !request.headers.is_empty() {
         out.push(String::new());
         out.extend(headers_block(&request.headers, &[]));
+    }
+    if request.auth.kind != AuthKind::None {
+        out.push(String::new());
+        out.extend(auth_block(&request.auth, &[]));
     }
     if kind != BodyKind::None {
         out.push(String::new());
@@ -286,10 +307,10 @@ pub fn format(request: &Request, kind: BodyKind) -> String {
     out.join("\n") + "\n"
 }
 
-/// `original` with the request's method, URL, headers and body written into
-/// it. Every other block — meta, vars, auth, scripts, docs — is kept as it was,
-/// and so is a headers or body block whose content has not changed, so saving
-/// a request nobody touched leaves the file byte for byte.
+/// `original` with the request's method, URL, headers, auth and body written
+/// into it. Every other block — meta, vars, scripts, docs — is kept as it was,
+/// and so is a headers, auth or body block whose content has not changed, so
+/// saving a request nobody touched leaves the file byte for byte.
 pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
     let original = original.replace("\r\n", "\n");
     let lines: Vec<&str> = original.split('\n').collect();
@@ -298,6 +319,7 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
     let before = parse(&original);
     let headers_changed = before.headers != request.headers;
     let body_changed = before.body_kind() != kind || before.body != request.body;
+    let auth_changed = before.auth != request.auth;
 
     let method_index = blocks.iter().position(|block| is_method_block(block.name));
     let has_headers = blocks
@@ -306,11 +328,21 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
     let has_body = blocks
         .iter()
         .any(|block| block.name.to_ascii_lowercase().starts_with("body:"));
+    let auth_name = format!("auth:{}", auth_mode(request.auth.kind));
+    let add_auth = auth_changed
+        && request.auth.kind != AuthKind::None
+        && !blocks
+            .iter()
+            .any(|block| block.name.eq_ignore_ascii_case(&auth_name));
 
     let mut out: Vec<String> = Vec::new();
     if method_index.is_none() {
-        out.extend(method_block(None, request, kind, true));
+        out.extend(method_block(None, request, kind, true, true));
         out.push(String::new());
+        if add_auth {
+            out.extend(auth_block(&request.auth, &[]));
+            out.push(String::new());
+        }
     }
 
     let mut cursor = 0;
@@ -330,10 +362,20 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
         let name = block.name.to_ascii_lowercase();
 
         if Some(index) == method_index {
-            out.extend(method_block(Some(block), request, kind, body_changed));
+            out.extend(method_block(
+                Some(block),
+                request,
+                kind,
+                body_changed,
+                auth_changed,
+            ));
             if !has_headers && !request.headers.is_empty() {
                 out.push(String::new());
                 out.extend(headers_block(&request.headers, &[]));
+            }
+            if add_auth {
+                out.push(String::new());
+                out.extend(auth_block(&request.auth, &[]));
             }
             if !has_body && kind != BodyKind::None {
                 out.push(String::new());
@@ -361,6 +403,17 @@ pub fn update(original: &str, request: &Request, kind: BodyKind) -> String {
             } else {
                 cursor = skip_blank(&lines, cursor);
             }
+        } else if let Some(mode) = name.strip_prefix("auth:")
+            && auth_changed
+        {
+            if request.auth.kind != AuthKind::None && mode == auth_mode(request.auth.kind) {
+                out.extend(auth_block(&request.auth, block.lines));
+            } else if before.auth.kind != AuthKind::None && mode == auth_mode(before.auth.kind) {
+                // The block of the kind it was, which the new one replaces.
+                cursor = skip_blank(&lines, cursor);
+            } else {
+                out.extend(verbatim());
+            }
         } else {
             out.extend(verbatim());
         }
@@ -384,12 +437,14 @@ fn skip_blank(lines: &[&str], cursor: usize) -> usize {
 }
 
 /// The method block, rewriting the lines binman owns — the URL, and the body
-/// mode when the body changed — and keeping every other line Bruno put there.
+/// and auth modes when those changed — and keeping every other line Bruno put
+/// there.
 fn method_block(
     original: Option<&Block>,
     request: &Request,
     kind: BodyKind,
     body_changed: bool,
+    auth_changed: bool,
 ) -> Vec<String> {
     let method = if request.method.is_empty() {
         "get".to_string()
@@ -399,6 +454,7 @@ fn method_block(
     let mut out = vec![format!("{method} {{")];
     let mut wrote_url = false;
     let mut wrote_body = false;
+    let mut wrote_auth = false;
 
     for line in original.map(|block| block.lines).unwrap_or_default() {
         let key = line.split_once(':').map(|(key, _)| key.trim());
@@ -415,6 +471,14 @@ fn method_block(
                 out.push(line.to_string());
                 wrote_body = true;
             }
+            Some("auth") if auth_changed => {
+                out.push(format!("  auth: {}", auth_mode(request.auth.kind)));
+                wrote_auth = true;
+            }
+            Some("auth") => {
+                out.push(line.to_string());
+                wrote_auth = true;
+            }
             _ => out.push(line.to_string()),
         }
     }
@@ -423,6 +487,9 @@ fn method_block(
     }
     if !wrote_body && (body_changed || original.is_none()) {
         out.insert(2, format!("  body: {}", body_mode(kind)));
+    }
+    if !wrote_auth && (auth_changed || original.is_none()) {
+        out.push(format!("  auth: {}", auth_mode(request.auth.kind)));
     }
     out.push("}".to_string());
     out
@@ -466,6 +533,108 @@ fn body_block(request: &Request, kind: BodyKind) -> Vec<String> {
             }
         }));
     }
+    out.push("}".to_string());
+    out
+}
+
+/// Bruno's name for an auth kind: the method block's `auth:` line, and the
+/// `auth:<mode>` block that holds its values.
+fn auth_mode(kind: AuthKind) -> &'static str {
+    match kind {
+        AuthKind::None => "none",
+        AuthKind::Bearer => "bearer",
+        AuthKind::Basic => "basic",
+        AuthKind::ApiKey => "apikey",
+        AuthKind::ClientCredentials => "oauth2",
+    }
+}
+
+/// The keys of an auth block that hold [`AuthKind::fields`], in that order.
+fn auth_keys(kind: AuthKind) -> &'static [&'static str] {
+    match kind {
+        AuthKind::None => &[],
+        AuthKind::Bearer => &["token"],
+        AuthKind::Basic => &["username", "password"],
+        AuthKind::ApiKey => &["key", "value"],
+        AuthKind::ClientCredentials => &["access_token_url", "client_id", "client_secret", "scope"],
+    }
+}
+
+/// The auth an `auth:<mode>` block describes, when it is one binman can send.
+/// An API key Bruno puts in the query string, and an OAuth2 grant other than
+/// client credentials, are not: they read as no auth, and since saving only
+/// rewrites auth that changed, they stay in the file as they were.
+fn read_auth(mode: &str, block: &[(String, String)]) -> Auth {
+    let kind = match mode {
+        "bearer" => AuthKind::Bearer,
+        "basic" => AuthKind::Basic,
+        "apikey" => AuthKind::ApiKey,
+        "oauth2" => AuthKind::ClientCredentials,
+        _ => return Auth::default(),
+    };
+    let value = |key: &str| {
+        block
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.as_str())
+    };
+    let sendable = match kind {
+        AuthKind::ApiKey => value("placement").is_none_or(|placement| placement == "header"),
+        AuthKind::ClientCredentials => value("grant_type") == Some("client_credentials"),
+        _ => true,
+    };
+    if !sendable {
+        return Auth::default();
+    }
+    Auth {
+        kind,
+        values: auth_keys(kind)
+            .iter()
+            .map(|key| value(key).unwrap_or_default().to_string())
+            .collect(),
+    }
+}
+
+/// What an auth block says, key by key. An API key's placement and an
+/// OAuth2 grant are written as well: they are what make the block mean what
+/// binman sends.
+fn auth_entries(auth: &Auth) -> Vec<(&'static str, String)> {
+    let mut entries: Vec<(&'static str, String)> = auth_keys(auth.kind)
+        .iter()
+        .enumerate()
+        .map(|(index, key)| (*key, auth.values.get(index).cloned().unwrap_or_default()))
+        .collect();
+    match auth.kind {
+        AuthKind::ApiKey => entries.push(("placement", "header".into())),
+        AuthKind::ClientCredentials => {
+            entries.insert(0, ("grant_type", "client_credentials".into()))
+        }
+        _ => {}
+    }
+    entries
+}
+
+/// The auth block. The keys binman owns are rewritten where they stand and
+/// any missing are added after; every other line — Bruno's token placement,
+/// its refresh settings — is carried over untouched.
+fn auth_block(auth: &Auth, original: &[&str]) -> Vec<String> {
+    let mut entries = auth_entries(auth);
+    let mut out = vec![format!("auth:{} {{", auth_mode(auth.kind))];
+    for line in original {
+        let key = line.split_once(':').map(|(key, _)| key.trim());
+        match entries.iter().position(|(owned, _)| Some(*owned) == key) {
+            Some(index) => {
+                let (key, value) = entries.remove(index);
+                out.push(format!("  {key}: {value}"));
+            }
+            None => out.push(line.to_string()),
+        }
+    }
+    out.extend(
+        entries
+            .into_iter()
+            .map(|(key, value)| format!("  {key}: {value}")),
+    );
     out.push("}".to_string());
     out
 }
@@ -671,5 +840,132 @@ docs {
         let labels: Vec<&str> = found.iter().map(|(label, _)| label.as_str()).collect();
         assert_eq!(labels, vec!["dev", "prod"]);
         assert_eq!(load_environment(&found[0].1).unwrap()["host"], "dev");
+    }
+
+    fn auth(kind: AuthKind, values: &[&str]) -> Auth {
+        Auth {
+            kind,
+            values: values.iter().map(|value| value.to_string()).collect(),
+        }
+    }
+
+    const BEARER: &str = "meta {
+  name: me
+}
+
+get {
+  url: https://example.com/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Who am I.
+}
+";
+
+    #[test]
+    fn reads_each_auth_kind_binman_sends() {
+        assert_eq!(parse(BEARER).auth, auth(AuthKind::Bearer, &["{{token}}"]));
+        assert_eq!(
+            parse("get {\n  url: https://x\n  auth: basic\n}\n\nauth:basic {\n  username: alice\n  password: {{pw}}\n}\n").auth,
+            auth(AuthKind::Basic, &["alice", "{{pw}}"])
+        );
+        assert_eq!(
+            parse("get {\n  url: https://x\n  auth: apikey\n}\n\nauth:apikey {\n  key: X-Api-Key\n  value: k\n  placement: header\n}\n").auth,
+            auth(AuthKind::ApiKey, &["X-Api-Key", "k"])
+        );
+        assert_eq!(
+            parse("get {\n  url: https://x\n  auth: oauth2\n}\n\nauth:oauth2 {\n  grant_type: client_credentials\n  access_token_url: https://auth/token\n  client_id: app\n  client_secret: s3cret\n  scope: read\n}\n").auth,
+            auth(AuthKind::ClientCredentials, &["https://auth/token", "app", "s3cret", "read"])
+        );
+    }
+
+    #[test]
+    fn the_mode_line_decides_which_block_is_in_force() {
+        let request =
+            parse("get {\n  url: https://x\n  auth: none\n}\n\nauth:bearer {\n  token: old\n}\n");
+        assert_eq!(request.auth, Auth::default());
+    }
+
+    #[test]
+    fn auth_binman_cannot_send_reads_as_none_and_is_left_alone() {
+        for file in [
+            "get {\n  url: https://x\n  auth: apikey\n}\n\nauth:apikey {\n  key: api_key\n  value: k\n  placement: queryparams\n}\n",
+            "get {\n  url: https://x\n  auth: oauth2\n}\n\nauth:oauth2 {\n  grant_type: authorization_code\n  client_id: app\n}\n",
+            "get {\n  url: https://x\n  auth: inherit\n}\n",
+        ] {
+            let request = parse(file);
+            assert_eq!(request.auth, Auth::default(), "{file}");
+            assert_eq!(update(file, &request, request.body_kind()), file);
+        }
+    }
+
+    #[test]
+    fn a_new_token_rewrites_only_the_token() {
+        let mut request = parse(BEARER);
+        request.auth = auth(AuthKind::Bearer, &["abc"]);
+        let saved = update(BEARER, &request, BodyKind::None);
+        assert_eq!(saved, BEARER.replace("{{token}}", "abc"));
+    }
+
+    #[test]
+    fn another_kind_replaces_the_block_and_the_mode() {
+        let mut request = parse(BEARER);
+        request.auth = auth(AuthKind::Basic, &["alice", "pw"]);
+        let saved = update(BEARER, &request, BodyKind::None);
+        assert!(saved.contains("  auth: basic"), "{saved}");
+        assert!(!saved.contains("auth:bearer"), "{saved}");
+        assert!(
+            saved.contains("name: me") && saved.contains("Who am I."),
+            "{saved}"
+        );
+        assert_eq!(parse(&saved).auth, request.auth);
+
+        request.auth = Auth::default();
+        let cleared = update(&saved, &request, BodyKind::None);
+        assert!(cleared.contains("  auth: none"), "{cleared}");
+        assert!(!cleared.contains("auth:basic"), "{cleared}");
+        assert_eq!(parse(&cleared).auth, Auth::default());
+    }
+
+    #[test]
+    fn bruno_s_own_auth_settings_survive_a_save() {
+        let original = "post {\n  url: https://x\n  body: none\n  auth: oauth2\n}\n\nauth:oauth2 {\n  grant_type: client_credentials\n  access_token_url: https://auth/token\n  client_id: app\n  client_secret: old\n  scope: read\n  credentials_placement: body\n  auto_fetch_token: true\n}\n";
+        let mut request = parse(original);
+        request.auth.values[2] = "new".into();
+        let saved = update(original, &request, BodyKind::None);
+        assert_eq!(
+            saved,
+            original.replace("client_secret: old", "client_secret: new")
+        );
+    }
+
+    #[test]
+    fn an_api_key_set_over_a_query_one_goes_in_a_header() {
+        let original = "get {\n  url: https://x\n  auth: apikey\n}\n\nauth:apikey {\n  key: api_key\n  value: k\n  placement: queryparams\n}\n";
+        let mut request = parse(original);
+        request.auth = auth(AuthKind::ApiKey, &["X-Api-Key", "k2"]);
+        let saved = update(original, &request, BodyKind::None);
+        assert!(saved.contains("  placement: header"), "{saved}");
+        assert!(!saved.contains("queryparams"), "{saved}");
+        assert_eq!(parse(&saved).auth, request.auth);
+    }
+
+    #[test]
+    fn a_fresh_file_carries_its_auth() {
+        let request = Request {
+            method: "GET".into(),
+            url: "https://api/x".into(),
+            auth: auth(AuthKind::ApiKey, &["X-Api-Key", "{{KEY}}"]),
+            ..Request::default()
+        };
+        let text = format(&request, BodyKind::None);
+        assert!(text.contains("  auth: apikey"), "{text}");
+        assert_eq!(parse(&text).auth, request.auth);
     }
 }
