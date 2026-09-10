@@ -161,6 +161,23 @@ pub fn cursor() -> Style {
     Style::default().bg(SURFACE)
 }
 
+/// A field being typed into inside a list row: a well sunk below the row's
+/// selection colour, so it reads as the place typing goes.
+pub fn field() -> Style {
+    Style::default().bg(CHROME_BG).fg(FOREGROUND)
+}
+
+/// The cursor in such a field. The ordinary cursor is the selection's own
+/// colour and vanishes on a selected row; this is the prompt caret's accent.
+pub fn caret() -> Style {
+    Style::default().bg(ACCENT).fg(CHROME_BG)
+}
+
+/// The bar down the left of a row being typed into, in the caret's colour.
+pub fn typing_bar() -> Style {
+    Style::default().fg(ACCENT).bg(SURFACE)
+}
+
 pub fn status_bar() -> Style {
     Style::default().bg(CHROME_BG).fg(SUBTEXT)
 }

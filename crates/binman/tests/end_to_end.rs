@@ -349,6 +349,45 @@ async fn a_typed_override_beats_the_environment() {
 }
 
 #[tokio::test]
+async fn a_variable_being_typed_into_looks_like_a_field() {
+    // The cursor was the selected row's own colour, so a variable being
+    // edited looked exactly like one merely selected.
+    let root = collection("typing");
+    write(&root.join(".env"), "ID=1\n");
+    write(&root.join("item.http"), "GET https://x/items/{{ID}}\n");
+    let (mut app, _messages) = app(&root);
+    open(&mut app, "item.http");
+    section(&mut app, Section::Vars);
+
+    let caret = Color::Rgb(0xfa, 0xb3, 0x87);
+    let well = Color::Rgb(0x18, 0x18, 0x25);
+    let row = locate(&mut app, "Params").1 + 1;
+    // Inside the request pane only: the sidebar is chrome, the well's colour.
+    let colours = |app: &mut App| -> Vec<Color> {
+        let terminal = draw(app, WIDTH, HEIGHT);
+        (49..WIDTH - 1)
+            .map(|x| terminal.backend().buffer()[(x, row)].bg)
+            .collect()
+    };
+
+    let selected = colours(&mut app);
+    assert!(!selected.contains(&caret) && !selected.contains(&well));
+
+    press(&mut app, KeyCode::Enter);
+    let typing = colours(&mut app);
+    assert!(typing.contains(&caret), "the caret shows on the selected row");
+    assert!(
+        typing.iter().filter(|colour| **colour == well).count() > 10,
+        "the value sits in a field"
+    );
+    let status = render(&mut app).lines().last().unwrap().to_string();
+    assert!(status.contains("Esc leaves it as it was"), "{status}");
+
+    press(&mut app, KeyCode::Esc);
+    assert!(!colours(&mut app).contains(&caret));
+}
+
+#[tokio::test]
 async fn a_pasted_curl_command_becomes_the_request() {
     let root = collection("curl");
     let (mut app, _messages) = app(&root);
