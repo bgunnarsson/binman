@@ -42,29 +42,16 @@ pub fn list(dir: &Path) -> Result<Vec<Entry>> {
         if name.starts_with('.') {
             continue;
         }
-        // Follows a symlink, so a collection linked in from elsewhere opens
-        // like any other.
-        let Ok(metadata) = std::fs::metadata(&path) else {
+        let Some(kind) = kind_of(&path, &name) else {
             continue;
         };
         let lower = name.to_ascii_lowercase();
-        let kind = if metadata.is_dir() {
-            if bruno_root && lower == "environments" {
-                continue;
-            }
-            EntryKind::Dir
-        } else if let Some(format) = Format::of(&path) {
-            if lower == "collection.bru" || lower == "folder.bru" {
-                continue;
-            }
-            EntryKind::Request(format)
-        } else if postman::is_collection(&name) {
-            EntryKind::Postman
-        } else if is_spec_file(&path, &lower) {
-            EntryKind::OpenApi
-        } else {
+        let bruno_file = matches!(kind, EntryKind::Request(_))
+            && (lower == "collection.bru" || lower == "folder.bru");
+        let bruno_environments = kind == EntryKind::Dir && bruno_root && lower == "environments";
+        if bruno_file || bruno_environments {
             continue;
-        };
+        }
         entries.push(Entry { name, path, kind });
     }
 
@@ -74,6 +61,37 @@ pub fn list(dir: &Path) -> Result<Vec<Entry>> {
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
     Ok(entries)
+}
+
+/// One path on its own, as the sidebar would list it: for a collection that
+/// is a single file rather than a directory.
+pub fn entry(path: &Path) -> Option<Entry> {
+    let name = path.file_name()?.to_str()?.to_string();
+    let kind = kind_of(path, &name)?;
+    Some(Entry {
+        name,
+        path: path.to_path_buf(),
+        kind,
+    })
+}
+
+/// What binman makes of a path: a directory, or a file it can open.
+///
+/// Follows a symlink, so a collection linked in from elsewhere opens like any
+/// other.
+fn kind_of(path: &Path, name: &str) -> Option<EntryKind> {
+    let metadata = std::fs::metadata(path).ok()?;
+    if metadata.is_dir() {
+        Some(EntryKind::Dir)
+    } else if let Some(format) = Format::of(path) {
+        Some(EntryKind::Request(format))
+    } else if postman::is_collection(name) {
+        Some(EntryKind::Postman)
+    } else if is_spec_file(path, &name.to_ascii_lowercase()) {
+        Some(EntryKind::OpenApi)
+    } else {
+        None
+    }
 }
 
 fn is_spec_file(path: &Path, lower_name: &str) -> bool {
@@ -125,10 +143,15 @@ pub struct Found {
 }
 
 /// Every request under `root`, including each one inside a Postman
-/// collection or an OpenAPI spec.
+/// collection or an OpenAPI spec. `root` may be one such file on its own.
 pub fn index(root: &Path) -> Vec<Found> {
     let mut out = Vec::new();
-    walk(root, root, &mut HashSet::new(), &mut out);
+    if root.is_dir() {
+        walk(root, root, &mut HashSet::new(), &mut out);
+    } else if let Some(entry) = entry(root) {
+        // What a collection of one file holds sits at its top.
+        visit(root, root, entry, &mut HashSet::new(), &mut out);
+    }
     out.sort_by(|a, b| {
         a.location
             .cmp(&b.location)
@@ -151,51 +174,62 @@ fn walk(root: &Path, dir: &Path, visited: &mut HashSet<PathBuf>, out: &mut Vec<F
     };
 
     for entry in entries {
-        match entry.kind {
-            EntryKind::Dir => walk(root, &entry.path, visited, out),
-            EntryKind::Request(format) => out.push(Found {
-                method: method_of(&entry.path, format).unwrap_or_default(),
-                title: entry.name.clone(),
-                location: relative(root, dir),
-                origin: Origin::File(entry.path.clone()),
-            }),
-            EntryKind::Postman => {
-                let Ok(collection) = std::fs::read(&entry.path)
-                    .map_err(crate::error::Error::from)
-                    .and_then(|bytes| postman::parse(&bytes))
-                else {
-                    continue;
-                };
-                let location = relative(root, &entry.path);
-                postman_items(
-                    &collection.items,
-                    &entry.path,
-                    &location,
-                    &mut Vec::new(),
-                    out,
-                );
-            }
-            EntryKind::OpenApi => {
-                let Ok(spec) = std::fs::read(&entry.path)
-                    .map_err(crate::error::Error::from)
-                    .and_then(|bytes| openapi::parse(&bytes, &entry.name))
-                else {
-                    continue;
-                };
-                let location = relative(root, &entry.path);
-                for group in openapi::groups(&spec) {
-                    for endpoint in group.endpoints {
-                        out.push(Found {
-                            method: endpoint.method.clone(),
-                            title: endpoint.route.clone(),
-                            location: format!("{location} › {}", group.tag),
-                            origin: Origin::OpenApi {
-                                path: entry.path.clone(),
-                                route: endpoint.route,
-                                method: endpoint.method,
-                            },
-                        });
-                    }
+        visit(root, dir, entry, visited, out);
+    }
+}
+
+/// One entry of `dir`: a directory to walk into, or the requests a file holds.
+fn visit(
+    root: &Path,
+    dir: &Path,
+    entry: Entry,
+    visited: &mut HashSet<PathBuf>,
+    out: &mut Vec<Found>,
+) {
+    match entry.kind {
+        EntryKind::Dir => walk(root, &entry.path, visited, out),
+        EntryKind::Request(format) => out.push(Found {
+            method: method_of(&entry.path, format).unwrap_or_default(),
+            title: entry.name.clone(),
+            location: relative(root, dir),
+            origin: Origin::File(entry.path.clone()),
+        }),
+        EntryKind::Postman => {
+            let Ok(collection) = std::fs::read(&entry.path)
+                .map_err(crate::error::Error::from)
+                .and_then(|bytes| postman::parse(&bytes))
+            else {
+                return;
+            };
+            let location = relative(root, &entry.path);
+            postman_items(
+                &collection.items,
+                &entry.path,
+                &location,
+                &mut Vec::new(),
+                out,
+            );
+        }
+        EntryKind::OpenApi => {
+            let Ok(spec) = std::fs::read(&entry.path)
+                .map_err(crate::error::Error::from)
+                .and_then(|bytes| openapi::parse(&bytes, &entry.name))
+            else {
+                return;
+            };
+            let location = relative(root, &entry.path);
+            for group in openapi::groups(&spec) {
+                for endpoint in group.endpoints {
+                    out.push(Found {
+                        method: endpoint.method.clone(),
+                        title: endpoint.route.clone(),
+                        location: within(&location, &group.tag),
+                        origin: Origin::OpenApi {
+                            path: entry.path.clone(),
+                            route: endpoint.route,
+                            method: endpoint.method,
+                        },
+                    });
                 }
             }
         }
@@ -222,10 +256,20 @@ fn postman_items(
                 },
             });
         } else {
-            let nested = format!("{location} › {}", item.name);
+            let nested = within(location, &item.name);
             postman_items(&item.items, path, &nested, trail, out);
         }
         trail.pop();
+    }
+}
+
+/// A folder or a tag inside a file, after where the file sits — or on its own
+/// when the file is the collection, and so sits nowhere.
+fn within(location: &str, name: &str) -> String {
+    if location.is_empty() {
+        name.to_string()
+    } else {
+        format!("{location} › {name}")
     }
 }
 
@@ -342,5 +386,21 @@ mod tests {
             (method.to_string(), title.to_string(), location.to_string())
         });
         assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn a_collection_that_is_one_file_indexes_what_it_holds() {
+        let root = collection("collection-one-file");
+        let found: Vec<(String, String)> = index(&root.join("api.postman_collection.json"))
+            .into_iter()
+            .map(|found| (found.title, found.location))
+            .collect();
+        assert_eq!(found, vec![("Login".to_string(), "Auth".to_string())]);
+
+        assert_eq!(
+            entry(&root.join("openapi.yaml")).map(|entry| entry.kind),
+            Some(EntryKind::OpenApi)
+        );
+        assert_eq!(entry(&root.join("notes.txt")), None);
     }
 }

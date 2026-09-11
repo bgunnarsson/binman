@@ -1,3 +1,4 @@
+use binman_core::workspace::Source;
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
@@ -11,12 +12,17 @@ use crate::ui;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
     let focused = app.focus == Pane::Collections;
-    let root = app
-        .root
-        .file_name()
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let block = ui::counted_pane("Collections", root, focused);
+    // The project being worked in, as DataGrip names its window after one.
+    let project = app
+        .workspace
+        .project_path()
+        .filter(|_| app.workspace.project_exists())
+        .and_then(|path| path.parent()?.file_name())
+        .map(|name| name.to_string_lossy().into_owned());
+    let block = match project {
+        Some(project) => ui::counted_pane("Collections", project, focused),
+        None => ui::pane("Collections", focused),
+    };
     let inner = block.inner(area);
     frame.render_widget(block, area);
     targets.add(area, Target::Pane(Pane::Collections));
@@ -24,10 +30,10 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
     if app.tree.roots.is_empty() {
         frame.render_widget(
             Paragraph::new(vec![
-                Line::from(Span::styled("Nothing to open here yet.", theme::muted())),
+                Line::from(Span::styled("No collections yet.", theme::muted())),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "binman opens .http, .bru and .graphql files, Postman collections and OpenAPI specs.",
+                    "binman <dir> opens one for this run; collections.json beside the config lists yours.",
                     theme::dim(),
                 )),
             ])
@@ -94,6 +100,23 @@ fn render_node(
     };
 
     match &node.kind {
+        NodeKind::Root { name, source, .. } => {
+            spans.push(Span::styled(
+                format!("{} ", theme::ICON_ROOT),
+                theme::node_root(),
+            ));
+            spans.push(Span::styled(name.clone(), theme::node_root()));
+            count(&mut spans);
+            // Yours is the ordinary case and goes unmarked.
+            let from = match source {
+                Source::Project => "project",
+                Source::Argument => "this run",
+                Source::User | Source::Config => "",
+            };
+            if !from.is_empty() {
+                spans.push(Span::styled(format!("  {from}"), theme::dim()));
+            }
+        }
         NodeKind::Dir { name, .. } => {
             let icon = if node.expanded {
                 theme::ICON_FOLDER_OPEN

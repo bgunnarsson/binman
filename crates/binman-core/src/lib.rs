@@ -26,6 +26,7 @@ pub mod source;
 #[cfg(test)]
 mod testing;
 pub mod vars;
+pub mod workspace;
 
 pub use auth::{Auth, AuthKind};
 pub use body::BodyKind;
@@ -37,3 +38,4 @@ pub use formats::Format;
 pub use request::{METHODS, Request};
 pub use source::{Loaded, Origin};
 pub use vars::{Layer, Scope, Vars};
+pub use workspace::{Collection, Workspace};

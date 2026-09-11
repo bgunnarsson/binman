@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use binman::send::{self, Options};
-use binman_core::Client;
 use binman_core::history::History;
+use binman_core::{Client, Workspace};
 use server::{Reply, serve};
 
 /// One directory per test — these run concurrently in one process.
@@ -41,8 +41,20 @@ struct Sent {
 async fn send(root: &Path, list: &[&str]) -> Sent {
     let options = Options::parse(args(list)).expect("the arguments parse");
     let client = Client::with(Some(Duration::from_secs(5)), None);
+    let mut collections =
+        Workspace::load_at(root.join(".state").join("collections.json"), None, None)
+            .expect("no collections");
+    collections.add_argument(root).expect("the collection");
     let (mut out, mut err) = (Vec::new(), Vec::new());
-    let result = send::run(&options, root, &client, &history(root), &mut out, &mut err).await;
+    let result = send::run(
+        &options,
+        &collections,
+        &client,
+        &history(root),
+        &mut out,
+        &mut err,
+    )
+    .await;
     Sent {
         result,
         out: String::from_utf8(out).unwrap(),

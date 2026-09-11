@@ -15,7 +15,7 @@ use binman::app::tree::NodeKind;
 use binman::app::{App, Message, Pane};
 use binman::ui;
 use binman_core::history::History;
-use binman_core::{Client, Origin};
+use binman_core::{Client, Origin, Workspace};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
@@ -41,12 +41,16 @@ fn write(path: &Path, text: &str) {
 }
 
 fn app(root: &Path) -> (App, UnboundedReceiver<Message>) {
-    // The history goes in a hidden directory, which the sidebar leaves out.
-    let history = History::at(root.join(".state").join("history.jsonl"));
+    // The history and the list of collections go in a hidden directory, which
+    // the sidebar leaves out.
+    let state = root.join(".state");
+    let mut workspace =
+        Workspace::load_at(state.join("collections.json"), None, None).expect("no collections");
+    workspace.add_argument(root).expect("the collection");
     App::new(
-        root.to_path_buf(),
+        workspace,
         Client::with(Some(Duration::from_secs(5)), None),
-        history,
+        History::at(state.join("history.jsonl")),
     )
 }
 
@@ -152,7 +156,8 @@ fn click(app: &mut App, text: &str) {
 fn selected_name(app: &App) -> String {
     match app.tree.selected().map(|node| &node.kind) {
         Some(
-            NodeKind::Dir { name, .. }
+            NodeKind::Root { name, .. }
+            | NodeKind::Dir { name, .. }
             | NodeKind::File { name, .. }
             | NodeKind::Collection { name, .. }
             | NodeKind::Folder { name }
@@ -818,7 +823,7 @@ async fn the_splash_greets_and_any_key_dismisses_it() {
         screen.contains(&format!("v{}", env!("CARGO_PKG_VERSION"))),
         "{screen}"
     );
-    assert!(screen.contains("Collections in"), "{screen}");
+    assert!(screen.contains("Collections  binman-ui-splash"), "{screen}");
     assert!(screen.contains("Any key to begin"), "{screen}");
 
     press(&mut app, KeyCode::Char('x'));
