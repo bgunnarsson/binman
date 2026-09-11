@@ -6,7 +6,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::app::App;
 use crate::app::mouse::{Target, Targets};
-use crate::app::overlay::{EnvEditor, Overlay, Picker, PickerKind, SavePrompt};
+use crate::app::overlay::{
+    CollectionForm, EnvEditor, FormField, Overlay, Picker, PickerKind, SavePrompt,
+};
 use crate::theme;
 use crate::ui;
 use crate::ui::explorer::badge;
@@ -31,6 +33,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
             save_prompt(frame, prompt, area, "Save the response to");
         }
         Some(Overlay::Curl(command)) => curl(frame, command, area),
+        Some(Overlay::Collection(form)) => collection_form(frame, form, area),
     }
 }
 
@@ -188,7 +191,7 @@ fn splash(frame: &mut Frame, collections: &[String], area: Rect) {
     lines.push(Line::from(""));
     if collections.is_empty() {
         lines.push(Line::from(Span::styled(
-            "No collections yet — binman <dir> opens one",
+            "No collections yet — a in the sidebar adds one",
             theme::dim(),
         )));
     } else {
@@ -265,6 +268,8 @@ const SECTIONS: &[Section] = &[
             ("Enter", "Open the request"),
             ("g / G", "First / last"),
             ("r", "Reload from disk"),
+            ("a", "Add a collection"),
+            ("e / d", "Edit / remove a collection"),
         ],
     ),
     (
@@ -531,6 +536,95 @@ fn save_prompt(frame: &mut Frame, prompt: &SavePrompt, area: Rect, title: &str) 
         lines.push(Line::from(""));
     }
     lines.push(hints(&[("↵", "save"), ("Esc", "cancel")]));
+
+    let height = saturating_u16(lines.len()) + BORDERS;
+    let inner = frame_for(frame, ui::centered_size(area, width, height), title);
+    frame.render_widget(Paragraph::new(lines), padded(inner));
+}
+
+// ── Collection form ─────────────────────────────────────────────────
+
+/// Enough for the labels and a path worth reading.
+const MIN_FORM_WIDTH: u16 = 64;
+const LABEL_WIDTH: usize = 10;
+
+/// binsql's connection form: a label column, the field in focus marked, and
+/// the value scrolling inside its field rather than stretching the box.
+fn collection_form(frame: &mut Frame, form: &CollectionForm, area: Rect) {
+    let title = if form.editing.is_some() {
+        "Edit the collection"
+    } else {
+        "Add a collection"
+    };
+    let width = (area.width * 70 / 100).clamp(MIN_FORM_WIDTH.min(area.width), 110);
+    let inner_width = width.saturating_sub(BORDERS + PADDING as u16 * 2);
+    let field_width = inner_width.saturating_sub(LABEL_WIDTH as u16 + 2);
+
+    let mut lines = vec![
+        Line::from(Span::styled(
+            "A directory of requests, a Postman collection or an OpenAPI spec.",
+            theme::dim(),
+        )),
+        Line::from(""),
+    ];
+    for field in form.fields() {
+        let active = field == form.field;
+        let mut spans = vec![
+            Span::styled(if active { "▸ " } else { "  " }, theme::accent()),
+            Span::styled(format!("{:<LABEL_WIDTH$}", field.label()), theme::muted()),
+        ];
+        match field {
+            FormField::Path => {
+                spans.extend(
+                    ui::input_line(&form.path, field_width, active, |_| theme::text()).spans,
+                );
+            }
+            // Left empty, it shows what it will be called.
+            FormField::Name if form.name.text().is_empty() => {
+                if active {
+                    spans.push(Span::styled(" ", theme::cursor()));
+                }
+                spans.push(Span::styled(form.placeholder(), theme::dim()));
+            }
+            FormField::Name => {
+                spans.extend(
+                    ui::input_line(&form.name, field_width, active, |_| theme::text()).spans,
+                );
+            }
+            FormField::Scope => {
+                let arrows = if active {
+                    theme::accent()
+                } else {
+                    theme::dim()
+                };
+                // Cut from the front, so the file's name and whether saving
+                // creates it stay on screen.
+                let file = ui::truncate_start(
+                    &form.scope_display(),
+                    usize::from(field_width.saturating_sub(4)),
+                );
+                spans.push(Span::styled("‹ ", arrows));
+                spans.push(Span::styled(file, theme::text()));
+                spans.push(Span::styled(" ›", arrows));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    if let Some(error) = &form.error {
+        lines.extend(ui::wrap_line(
+            &Line::from(Span::styled(error.clone(), theme::danger())),
+            inner_width as usize,
+        ));
+        lines.push(Line::from(""));
+    }
+    let mut keys = vec![("Tab", "next")];
+    if form.fields().contains(&FormField::Scope) {
+        keys.push(("← →", "saved in"));
+    }
+    keys.extend([("↵", "save"), ("Esc", "cancel")]);
+    lines.push(hints(&keys));
 
     let height = saturating_u16(lines.len()) + BORDERS;
     let inner = frame_for(frame, ui::centered_size(area, width, height), title);

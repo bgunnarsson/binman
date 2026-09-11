@@ -33,7 +33,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
                 Line::from(Span::styled("No collections yet.", theme::muted())),
                 Line::from(""),
                 Line::from(Span::styled(
-                    "binman <dir> opens one for this run; collections.json beside the config lists yours.",
+                    "a adds one: a directory of requests, a Postman collection or an OpenAPI spec.",
                     theme::dim(),
                 )),
             ])

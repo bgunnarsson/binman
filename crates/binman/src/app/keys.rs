@@ -12,7 +12,7 @@ use tui_textarea::{CursorMove, Input, Key};
 
 use super::kv::KvTable;
 use super::line::LineInput;
-use super::overlay::{Action, Overlay, PickerKind};
+use super::overlay::{Action, FormField, Overlay, PickerKind};
 use super::tab::{Section, Tab};
 use super::{App, Pane};
 
@@ -116,6 +116,9 @@ fn collections(app: &mut App, key: KeyEvent) {
         KeyCode::Enter => app.activate_selected(),
 
         KeyCode::Char('r') => app.reload_tree(),
+        KeyCode::Char('a') => app.open_add_collection(),
+        KeyCode::Char('e') => app.edit_collection(),
+        KeyCode::Char('d') => app.remove_collection(),
         KeyCode::Char('?') => app.overlay = Some(Overlay::Help),
         _ => {}
     }
@@ -417,6 +420,24 @@ fn overlay(app: &mut App, key: KeyEvent) {
             _ => {
                 prompt.input.handle(key);
                 prompt.error = None;
+            }
+        },
+
+        Some(Overlay::Collection(form)) => match key.code {
+            KeyCode::Esc => app.overlay = None,
+            KeyCode::Enter => app.save_collection(),
+            KeyCode::Tab | KeyCode::Down => form.next_field(1),
+            KeyCode::BackTab | KeyCode::Up => form.next_field(-1),
+            KeyCode::Left | KeyCode::Right | KeyCode::Char(' ')
+                if form.field == FormField::Scope =>
+            {
+                form.toggle_scope();
+            }
+            _ => {
+                if let Some(input) = form.input() {
+                    input.handle(key);
+                }
+                form.error = None;
             }
         },
 

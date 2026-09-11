@@ -1242,3 +1242,110 @@ async fn the_help_screen_lists_the_keys_that_work() {
     }
     assert!(matches!(app.overlay, Some(Overlay::Help)));
 }
+
+/// An app with nothing registered yet, over a user file and a repository's
+/// project file, neither of them written.
+fn registering(dir: &Path) -> (App, UnboundedReceiver<Message>) {
+    let state = dir.join(".state");
+    let workspace = Workspace::load_at(
+        state.join("collections.json"),
+        None,
+        Some(dir.join("repo").join(".binman.json")),
+    )
+    .expect("nothing to read yet");
+    App::new(
+        workspace,
+        Client::with(Some(Duration::from_secs(5)), None),
+        History::at(state.join("history.jsonl")),
+    )
+}
+
+#[tokio::test]
+async fn a_collection_added_in_the_form_goes_in_the_project_and_opens() {
+    let dir = collection("register");
+    write(
+        &dir.join("repo").join("requests").join("ping.http"),
+        "GET https://x/ping\n",
+    );
+    let (mut app, _messages) = registering(&dir);
+    assert!(render(&mut app).contains("No collections yet"));
+
+    press(&mut app, KeyCode::Char('a'));
+    let screen = render(&mut app);
+    println!("\n{screen}\n");
+    assert!(screen.contains("Saved in"), "{screen}");
+    assert!(
+        screen.contains(".binman.json (new)"),
+        "saving there is what creates it:\n{screen}"
+    );
+
+    ctrl(&mut app, 'u');
+    typed(
+        &mut app,
+        &dir.join("repo").join("requests").display().to_string(),
+    );
+    press(&mut app, KeyCode::Tab);
+    typed(&mut app, "api");
+    press(&mut app, KeyCode::Enter);
+    assert!(app.overlay.is_none(), "{}", app.status.text);
+    assert!(app.status.text.contains("Added api"), "{}", app.status.text);
+
+    let project = std::fs::read_to_string(dir.join("repo").join(".binman.json")).unwrap();
+    assert!(
+        project.contains(r#""api": "requests""#),
+        "written relative to the file, so every clone reads it:\n{project}"
+    );
+    let screen = render(&mut app);
+    assert!(screen.contains("ping.http"), "opened once added:\n{screen}");
+}
+
+#[tokio::test]
+async fn a_collection_edited_into_your_file_moves_and_d_removes_it() {
+    let dir = collection("register-move");
+    write(
+        &dir.join("repo").join("requests").join("ping.http"),
+        "GET https://x/ping\n",
+    );
+    write(
+        &dir.join("repo").join(".binman.json"),
+        r#"{ "collections": { "api": "requests" } }"#,
+    );
+    let (mut app, _messages) = registering(&dir);
+
+    select(&mut app, "api");
+    press(&mut app, KeyCode::Char('e'));
+    assert!(render(&mut app).contains("Edit the collection"));
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Tab);
+    press(&mut app, KeyCode::Right);
+    press(&mut app, KeyCode::Enter);
+    assert!(app.overlay.is_none(), "{}", app.status.text);
+
+    let user = std::fs::read_to_string(dir.join(".state").join("collections.json")).unwrap();
+    let project = std::fs::read_to_string(dir.join("repo").join(".binman.json")).unwrap();
+    assert!(user.contains("\"api\""), "{user}");
+    assert!(!project.contains("api"), "moved, not copied:\n{project}");
+
+    select(&mut app, "api");
+    press(&mut app, KeyCode::Char('d'));
+    assert!(app.workspace.collections().is_empty());
+    assert!(
+        app.status.text.contains("still on disk"),
+        "{}",
+        app.status.text
+    );
+    assert!(dir.join("repo").join("requests").join("ping.http").exists());
+}
+
+#[tokio::test]
+async fn with_no_project_the_form_offers_no_choice_of_file() {
+    let root = collection("register-alone");
+    let (mut app, _messages) = app(&root);
+    press(&mut app, KeyCode::Char('a'));
+    let screen = render(&mut app);
+    assert!(screen.contains("Add a collection"), "{screen}");
+    assert!(
+        !screen.contains("Saved in"),
+        "there is one file, so nothing to choose:\n{screen}"
+    );
+}

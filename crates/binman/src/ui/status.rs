@@ -87,7 +87,9 @@ fn hint_spans() -> Vec<Span<'static>> {
 fn context(app: &App) -> String {
     let tab = app.tab();
     match app.focus {
-        Pane::Collections => "Enter opens a request · ⌃F finds one anywhere".into(),
+        Pane::Collections => {
+            "Enter opens a request · a adds a collection · ⌃F finds a request anywhere".into()
+        }
         Pane::Url => {
             "↑↓ changes the method · Enter sends · a pasted curl command is imported on Enter"
                 .into()
