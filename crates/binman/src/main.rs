@@ -1,12 +1,13 @@
 //! binman — an HTTP client for the terminal.
 
 use std::io::Write;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use base64::Engine;
 use binman_core::history::History;
-use binman_core::{Client, Config};
+use binman_core::{Client, Config, Workspace};
 use crossterm::event::{
     DisableBracketedPaste, DisableMouseCapture, EnableBracketedPaste, EnableMouseCapture, Event,
     EventStream, MouseEventKind,
@@ -20,7 +21,8 @@ const HELP: &str = "\
 binman — an HTTP client for the terminal
 
 USAGE
-    binman              open the collections in HTTP_FILES
+    binman              open your collections, and the project's
+    binman <path>...    open these too, for this run only
     binman send <file>  send one request and print the response
 
 OPTIONS
@@ -32,10 +34,18 @@ SEND
     --var NAME=VALUE    a value for a variable, above every other
     -i, --include       the status line and headers ahead of the body
 
+COLLECTIONS
+    A collection is a directory of requests, a Postman collection or an
+    OpenAPI spec. They are listed in two files:
+
+    ~/.config/binman/collections.json   yours, in every project
+    .binman.json                        a project's: the nearest at or above
+                                        where binman starts; commit it
+
 CONFIG
     ~/.config/binman/config, or $XDG_CONFIG_HOME/binman/config:
 
-    HTTP_FILES  = /path/to/collections    required
+    HTTP_FILES  = /path/to/collections    listed as one more collection
     TIMEOUT     = 30s                     0 for none; 30s when left out
     CLIENT_CERT = /path/to/client.crt     mTLS, together with CLIENT_KEY
     CLIENT_KEY  = /path/to/client.key
@@ -44,9 +54,10 @@ CONFIG
 #[tokio::main]
 async fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let sending = match args.next() {
-        None => None,
-        Some(arg) => match arg.as_str() {
+    let mut opened = Vec::new();
+    let mut sending = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
             "-h" | "--help" => {
                 print!("{HELP}");
                 return Ok(());
@@ -55,29 +66,19 @@ async fn main() -> Result<()> {
                 println!("binman {}", env!("CARGO_PKG_VERSION"));
                 return Ok(());
             }
-            "send" => Some(send::Options::parse(args)?),
+            "send" if opened.is_empty() => {
+                sending = Some(send::Options::parse(args.by_ref())?);
+                break;
+            }
             other if other.starts_with('-') => bail!("Unknown option {other}. Try --help."),
-            other => bail!(
-                "Unexpected argument {other}: binman reads its collections from HTTP_FILES in {}. Try --help.",
-                Config::path().display()
-            ),
-        },
-    };
+            other => opened.push(PathBuf::from(other)),
+        }
+    }
 
     let config = Config::load()?;
-    let root = config.root.canonicalize().with_context(|| {
-        format!(
-            "the collections directory {} (HTTP_FILES in {})",
-            config.root.display(),
-            Config::path().display()
-        )
-    })?;
-    if !root.is_dir() {
-        bail!(
-            "{} is not a directory (HTTP_FILES in {})",
-            root.display(),
-            Config::path().display()
-        );
+    let mut workspace = Workspace::load(&config).context("reading the collections")?;
+    for path in &opened {
+        workspace.add_argument(path)?;
     }
     let client = Client::new(&config)?;
     let history = History::at(History::default_path());
@@ -85,7 +86,7 @@ async fn main() -> Result<()> {
     if let Some(options) = sending {
         return send::run(
             &options,
-            &root,
+            &workspace,
             &client,
             &history,
             &mut std::io::stdout(),
@@ -94,7 +95,7 @@ async fn main() -> Result<()> {
         .await;
     }
 
-    let (mut app, mut messages) = App::new(root, client, history);
+    let (mut app, mut messages) = App::new(workspace, client, history);
     app.show_splash();
 
     let mut terminal = ratatui::init();

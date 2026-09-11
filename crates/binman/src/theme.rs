@@ -55,6 +55,8 @@ pub const MARK: char = '✻';
 // ── Icons ───────────────────────────────────────────────────────────
 pub const ICON_FOLDER: char = '\u{f07b}';
 pub const ICON_FOLDER_OPEN: char = '\u{f07c}';
+/// A registered collection, at the top of the tree.
+pub const ICON_ROOT: char = '\u{f0ac}';
 /// A Postman collection: many requests in one file.
 pub const ICON_COLLECTION: char = '\u{f1b3}';
 /// An OpenAPI spec.
@@ -234,6 +236,11 @@ pub fn key() -> Style {
 }
 
 // ── Tree ────────────────────────────────────────────────────────────
+
+/// A collection's own row, which heads everything under it.
+pub fn node_root() -> Style {
+    Style::default().fg(EMPHASIS).add_modifier(Modifier::BOLD)
+}
 
 pub fn node_dir() -> Style {
     Style::default().fg(EMPHASIS)

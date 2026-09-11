@@ -29,13 +29,49 @@ cargo build --release   # target/release/binman
 
 The tree's icons need a Nerd Font; without one they render as boxes.
 
+## Collections
+
+A collection is a directory of request files, a Postman collection or an
+OpenAPI spec. Each one is a row at the top of the tree, and there can be as
+many as you like, listed where they belong — the way DataGrip lists data
+sources:
+
+- **Yours**, in `~/.config/binman/collections.json` (under `$XDG_CONFIG_HOME`
+  when that is set), listed in every project.
+- **A project's**, in the nearest `.binman.json` at or above where binman
+  starts, looked for no higher than the repository it is in. Its paths are
+  taken from where the file sits, so commit it and every clone lists the same
+  collections.
+- **This run's**: `binman path/to/requests stripe.postman_collection.json`
+  lists them until binman quits, and writes nothing.
+
+Both files have the same shape:
+
+```json
+{
+  "collections": {
+    "api": "requests",
+    "stripe": "~/Downloads/stripe.postman_collection.json"
+  }
+}
+```
+
+Where the two use the same name, the project's wins, and the rest of yours stay
+listed beside it. The project's collections and this run's start open; yours
+start closed, so a long list stays a list. `F5` reads both files again, so a
+`.binman.json` that a pull changed arrives without a restart.
+
+Once there is more than one collection, a request's name starts with its
+collection's — `api/users/get.http` — and so can a path typed to save a new
+one.
+
 ## Configure
 
 binman reads `~/.config/binman/config`, or `$XDG_CONFIG_HOME/binman/config`
-when that is set:
+when that is set. Every line is optional:
 
 ```
-# The directory holding your request files (required)
+# A directory of request files, listed as one more collection
 HTTP_FILES  = /path/to/your/collections
 
 # 30s when left out; 0 for no limit, which a streaming endpoint needs
@@ -46,23 +82,25 @@ CLIENT_CERT = /path/to/client.crt
 CLIENT_KEY  = /path/to/client.key
 ```
 
-`HTTP_FILES` must be a directory that exists; a relative path is taken from
-where binman starts. `TIMEOUT` takes durations like `30s`, `2m`, `1m30s` or
+`HTTP_FILES` was v1's one location for collections. It is still read, and
+listed under its directory's name; a relative path is taken from where binman
+starts. `TIMEOUT` takes durations like `30s`, `2m`, `1m30s` or
 `500ms`. Values are taken literally — quotes stay in and `~` is not expanded —
 and unknown keys are ignored. A `TIMEOUT` that does not parse, or a certificate
 that cannot be read, stops binman at start with an error.
 
 ## Collection formats
 
-The tree shows everything under `HTTP_FILES` that binman can open, directories
-first. Hidden files are skipped, and a file that does not parse shows its error
-in the tree. Only `.http` and `.bru` requests can be saved; the others can be
-edited and sent.
+Under each collection the tree shows everything binman can open, directories
+first. Hidden files are skipped, and a file that does not parse — or a
+collection that is not there — shows its error in the tree. Only `.http` and
+`.bru` requests can be saved; the others can be edited and sent.
 
 A tab with no file — a new tab, or a request sent again from the history — asks
-where to save it. The path has to be under `HTTP_FILES`, and the file is written
-as `.http` unless the name ends in `.bru`. Nothing is written over a file that
-is already there, and from then on `⌃S` saves to the new file.
+where to save it. The path has to be inside a collection that is a directory:
+the one you are in, unless the path starts with another's name. The file is
+written as `.http` unless the name ends in `.bru`. Nothing is written over a
+file that is already there, and from then on `⌃S` saves to the new file.
 
 ### `.http`
 
@@ -196,7 +234,9 @@ binman send collections/users/get.http --env staging --var ID=42
 ```
 
 `binman send` sends one `.http`, `.bru` or `.graphql` file the way the terminal
-front end would, with the same config, environments and variables. A `--var`
+front end would, with the same config, environments and variables. It needs no
+config of its own: run from a repository whose `.binman.json` lists the file's
+collection, a CI job finds the same environments you do. A `--var`
 value takes the place of one typed under **Vars**, and without `--env` the
 first environment found is used. The status line goes to stderr and the body to
 stdout; `-i` puts the status line and headers on stdout ahead of the body, as

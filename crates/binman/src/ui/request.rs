@@ -3,7 +3,7 @@
 use std::ops::Range;
 
 use binman_core::vars::{self, Layer, Vars};
-use binman_core::{AuthKind, BodyKind, auth, collection};
+use binman_core::{AuthKind, BodyKind, Workspace, auth};
 use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -144,7 +144,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
         tabs,
         active,
         extracted,
-        root,
+        workspace,
         ..
     } = app;
     let tab = &mut tabs[*active];
@@ -209,7 +209,7 @@ pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets)
         Section::Auth => auth_section(frame, tab, inner, focused, targets),
         Section::Vars => vars_section(frame, tab, extracted, &referenced, inner, focused, targets),
         Section::Scripts => scripts(frame, tab, inner, focused, targets),
-        Section::Info => info(frame, tab, extracted, root, describe_source, inner),
+        Section::Info => info(frame, tab, extracted, workspace, describe_source, inner),
     }
 }
 
@@ -565,7 +565,7 @@ fn info(
     frame: &mut Frame,
     tab: &Tab,
     extracted: &Vars,
-    root: &std::path::Path,
+    workspace: &Workspace,
     source: Option<String>,
     area: Rect,
 ) {
@@ -582,7 +582,7 @@ fn info(
             "{} · {} · {}",
             source.label,
             source.kind.label(),
-            collection::relative(root, &source.path)
+            workspace.display(&source.path)
         ),
         None => "none".to_string(),
     };

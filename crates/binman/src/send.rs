@@ -3,12 +3,12 @@
 //! same history.
 
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
 use binman_core::history::History;
-use binman_core::{Client, Format, Origin, Vars, env};
+use binman_core::{Client, Format, Origin, Vars, Workspace, env};
 use tokio_util::sync::CancellationToken;
 
 use crate::app::tab::Tab;
@@ -66,7 +66,7 @@ impl Options {
 /// Refuses, sending nothing, while any variable the request names is unset.
 pub async fn run(
     options: &Options,
-    root: &Path,
+    collections: &Workspace,
     client: &Client,
     history: &History,
     out: &mut impl Write,
@@ -83,13 +83,9 @@ pub async fn run(
         );
     }
     let origin = Origin::File(path);
-    // Environments are looked for up to the collections. A file from outside
-    // them has only its own directory to look in.
-    let root = if origin.path().starts_with(root) {
-        root.to_path_buf()
-    } else {
-        origin.dir().to_path_buf()
-    };
+    // Environments are looked for up to the file's collection. A file from
+    // outside them all has only its own directory to look in.
+    let root = collections.root_for(origin.path());
 
     let loaded = origin.load(&root)?;
     let envs = env::discover(origin.dir(), &root);

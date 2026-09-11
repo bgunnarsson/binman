@@ -12,10 +12,15 @@ use crate::ui;
 use crate::ui::explorer::badge;
 
 pub fn draw(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
-    let root = app.root.clone();
+    let collections: Vec<String> = app
+        .workspace
+        .collections()
+        .iter()
+        .map(|collection| collection.name.clone())
+        .collect();
     match &mut app.overlay {
         None => {}
-        Some(Overlay::Splash) => splash(frame, &root, area),
+        Some(Overlay::Splash) => splash(frame, &collections, area),
         Some(Overlay::Help) => help(frame, area),
         Some(Overlay::Picker(picker)) => picker_box(frame, picker, area, targets),
         Some(Overlay::Env(editor)) => env_editor(frame, editor, area),
@@ -152,7 +157,7 @@ fn wordmark() -> Vec<String> {
 /// The greeting, shown once at startup. Falls back to plain text in a terminal
 /// too narrow for the wordmark — a splash that overflows its own box is worse
 /// than no splash.
-fn splash(frame: &mut Frame, root: &std::path::Path, area: Rect) {
+fn splash(frame: &mut Frame, collections: &[String], area: Rect) {
     let wordmark = wordmark();
     let wordmark_width = wordmark
         .iter()
@@ -181,10 +186,19 @@ fn splash(frame: &mut Frame, root: &std::path::Path, area: Rect) {
         theme::muted(),
     )));
     lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("Collections in ", theme::dim()),
-        Span::styled(home_relative(root), theme::muted()),
-    ]));
+    if collections.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "No collections yet — binman <dir> opens one",
+            theme::dim(),
+        )));
+    } else {
+        // Held to the wordmark's width, so a long list does not widen the box.
+        let names = ui::truncate(&collections.join(", "), wordmark_width.saturating_sub(13));
+        lines.push(Line::from(vec![
+            Span::styled("Collections  ", theme::dim()),
+            Span::styled(names, theme::muted()),
+        ]));
+    }
     lines.push(Line::from(""));
     for (binding, what) in [("⌃F", "find a request"), ("⌃K", "commands"), ("F1", "help")] {
         lines.push(Line::from(vec![
@@ -204,16 +218,6 @@ fn splash(frame: &mut Frame, root: &std::path::Path, area: Rect) {
         format!("v{}", env!("CARGO_PKG_VERSION")),
     );
     frame.render_widget(Paragraph::new(lines), padded(inner));
-}
-
-fn home_relative(path: &std::path::Path) -> String {
-    let text = path.display().to_string();
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && text.starts_with(&home) => {
-            format!("~{}", &text[home.len()..])
-        }
-        _ => text,
-    }
 }
 
 // ── Help ────────────────────────────────────────────────────────────

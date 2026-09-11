@@ -6,6 +6,9 @@
 //! CLIENT_CERT = /path/to/client.crt
 //! CLIENT_KEY  = /path/to/client.key
 //! ```
+//!
+//! `HTTP_FILES` was v1's one place for collections. It is still read, as one
+//! collection among the rest; see [`crate::workspace`].
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -18,8 +21,8 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Config {
-    /// `HTTP_FILES`: the directory every collection is read from.
-    pub root: PathBuf,
+    /// `HTTP_FILES`: a directory of collections, listed as one.
+    pub root: Option<PathBuf>,
     /// `None` is no timeout at all, which is what a streaming endpoint needs.
     pub timeout: Option<Duration>,
     /// `CLIENT_CERT` and `CLIENT_KEY`. mTLS needs both, so one on its own is
@@ -41,8 +44,8 @@ impl Config {
         Self::load_from(&Self::path())
     }
 
-    /// A missing file reads as an empty one, which then fails for want of
-    /// `HTTP_FILES` — with a message that says where to put it.
+    /// A missing file reads as an empty one: every setting has a default, and
+    /// the collections can come from elsewhere.
     pub fn load_from(path: &Path) -> Result<Config> {
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
@@ -57,8 +60,8 @@ impl Config {
         Self::parse(&text, path)
     }
 
-    /// `origin` is only for the messages: a missing `HTTP_FILES` should say
-    /// which file it is missing from.
+    /// `origin` is only for the messages: a `TIMEOUT` that does not parse
+    /// should say which file it is in.
     pub fn parse(text: &str, origin: &Path) -> Result<Config> {
         let mut root = None;
         let mut timeout = Some(DEFAULT_TIMEOUT);
@@ -97,13 +100,6 @@ impl Config {
                 _ => {}
             }
         }
-
-        let root = root.ok_or_else(|| {
-            Error::Config(format!(
-                "HTTP_FILES is not set — add `HTTP_FILES = /path/to/collections` to {}",
-                origin.display()
-            ))
-        })?;
 
         Ok(Config {
             root,
@@ -172,7 +168,7 @@ mod tests {
              CLIENT_KEY  = /etc/client.key\n",
         )
         .expect("parses");
-        assert_eq!(config.root, PathBuf::from("/srv/collections"));
+        assert_eq!(config.root, Some(PathBuf::from("/srv/collections")));
         assert_eq!(config.timeout, Some(Duration::from_secs(45)));
         assert_eq!(
             config.client_identity,
@@ -184,10 +180,9 @@ mod tests {
     }
 
     #[test]
-    fn http_files_is_required_and_the_message_says_where() {
-        let error = parse("TIMEOUT = 5s\n").unwrap_err().to_string();
-        assert!(error.contains("HTTP_FILES"), "{error}");
-        assert!(error.contains("/tmp/binman/config"), "{error}");
+    fn http_files_can_be_left_out_now_collections_are_registered() {
+        assert_eq!(parse("TIMEOUT = 5s\n").unwrap().root, None);
+        assert_eq!(parse("").unwrap(), parse("# nothing\n").unwrap());
     }
 
     #[test]
@@ -209,6 +204,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(error.contains("TIMEOUT = 30"), "{error}");
+        assert!(error.contains("/tmp/binman/config"), "{error}");
     }
 
     #[test]

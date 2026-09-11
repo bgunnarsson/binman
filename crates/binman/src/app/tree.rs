@@ -1,14 +1,16 @@
 //! The collections tree.
 //!
-//! Directories load as they are opened, a Postman collection or an OpenAPI
-//! spec expands into its requests the same way, and a request is a leaf. Nodes
-//! carry ids that outlive a reload, as binsql's do, so nothing is keyed on a
-//! row that has since moved.
+//! Each registered collection is a row of the top level. Directories load as
+//! they are opened, a Postman collection or an OpenAPI spec expands into its
+//! requests the same way, and a request is a leaf. Nodes carry ids that
+//! outlive a reload, as binsql's do, so nothing is keyed on a row that has
+//! since moved.
 
 use std::path::{Path, PathBuf};
 
 use binman_core::collection::{self, EntryKind};
 use binman_core::formats::{openapi, postman};
+use binman_core::workspace::{Collection, Source};
 use binman_core::{Format, Origin};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -16,6 +18,13 @@ pub struct NodeId(u64);
 
 #[derive(Debug, Clone)]
 pub enum NodeKind {
+    /// A registered collection: a directory of requests, or one file that
+    /// holds them.
+    Root {
+        name: String,
+        path: PathBuf,
+        source: Source,
+    },
     Dir {
         path: PathBuf,
         name: String,
@@ -107,7 +116,6 @@ pub struct VisibleNode {
 
 #[derive(Debug)]
 pub struct Tree {
-    pub root: PathBuf,
     pub roots: Vec<Node>,
     next_id: u64,
     pub selected: usize,
@@ -115,17 +123,71 @@ pub struct Tree {
 }
 
 impl Tree {
-    pub fn new(root: PathBuf) -> Tree {
+    /// The collections, with the ones you most likely came for already open:
+    /// the project's, those named on the command line, or the only one there
+    /// is. The rest wait to be opened, so a long list of your own stays a
+    /// list.
+    pub fn new(collections: &[Collection]) -> Tree {
         let mut tree = Tree {
-            root,
             roots: Vec::new(),
             next_id: 0,
             selected: 0,
             offset: 0,
         };
-        let root = tree.root.clone();
-        tree.roots = tree.list(&root);
+        tree.sync(collections);
+        let only = collections.len() == 1;
+        let open: Vec<NodeId> = tree
+            .roots
+            .iter()
+            .filter(|node| {
+                only || matches!(
+                    node.kind,
+                    NodeKind::Root {
+                        source: Source::Project | Source::Argument,
+                        ..
+                    }
+                )
+            })
+            .map(|node| node.id)
+            .collect();
+        for id in open {
+            tree.toggle(id);
+        }
         tree
+    }
+
+    /// Brings the top level in line with the collections, keeping each one
+    /// still there as it was — open, with what was read under it.
+    pub fn sync(&mut self, collections: &[Collection]) {
+        let mut kept = std::mem::take(&mut self.roots);
+        let roots: Vec<Node> = collections
+            .iter()
+            .map(|collection| {
+                let same = kept.iter().position(|node| {
+                    matches!(&node.kind, NodeKind::Root { name, path, .. }
+                        if *name == collection.name && *path == collection.path)
+                });
+                match same {
+                    Some(index) => {
+                        let mut node = kept.swap_remove(index);
+                        if let NodeKind::Root { source, .. } = &mut node.kind {
+                            *source = collection.source;
+                        }
+                        node
+                    }
+                    None => self.make(
+                        NodeKind::Root {
+                            name: collection.name.clone(),
+                            path: collection.path.clone(),
+                            source: collection.source,
+                        },
+                        LoadState::Pending,
+                    ),
+                }
+            })
+            .collect();
+        self.roots = roots;
+        self.clamp_selection();
     }
 
     fn make(&mut self, kind: NodeKind, state: LoadState) -> Node {
@@ -183,6 +245,7 @@ impl Tree {
     /// the tree, where the reader is looking.
     fn children_of(&mut self, kind: &NodeKind) -> Vec<Node> {
         match kind {
+            NodeKind::Root { path, .. } => self.collection(path),
             NodeKind::Dir { path, .. } => self.list(path),
             NodeKind::Collection { path, .. } => {
                 match std::fs::read(path)
@@ -203,6 +266,29 @@ impl Tree {
                 }
             }
             _ => Vec::new(),
+        }
+    }
+
+    /// What a registered collection holds: a directory's listing, or what its
+    /// one file does. One that is not there says so rather than listing as
+    /// empty — a path from a teammate's machine, or a drive not mounted.
+    fn collection(&mut self, path: &Path) -> Vec<Node> {
+        if path.is_dir() {
+            return self.list(path);
+        }
+        if !path.exists() {
+            return vec![self.note(format!("{} is not there", path.display()), true)];
+        }
+        let Some(entry) = collection::entry(path) else {
+            return vec![self.note("binman can't open this file", true)];
+        };
+        let node = self.entry(entry);
+        match &node.kind {
+            NodeKind::File { .. } => vec![node],
+            kind => {
+                let kind = kind.clone();
+                self.children_of(&kind)
+            }
         }
     }
 
@@ -349,6 +435,42 @@ impl Tree {
         self.selected_id().and_then(|id| self.find(id))
     }
 
+    /// The name of the collection the selected row is in.
+    pub fn selected_collection(&self) -> Option<&str> {
+        let mut id = self.selected_id()?;
+        while let Some(parent) = self.parent_of(id) {
+            id = parent;
+        }
+        match &self.find(id)?.kind {
+            NodeKind::Root { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    /// The name of the collection whose own row is selected.
+    pub fn selected_root(&self) -> Option<&str> {
+        match &self.selected()?.kind {
+            NodeKind::Root { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    /// Selects a collection's row and opens it.
+    pub fn select_root(&mut self, name: &str) {
+        let Some(node) = self
+            .roots
+            .iter()
+            .find(|node| matches!(&node.kind, NodeKind::Root { name: held, .. } if held == name))
+        else {
+            return;
+        };
+        let (id, expanded) = (node.id, node.expanded);
+        if !expanded {
+            self.toggle(id);
+        }
+        self.select_id(id);
+    }
+
     pub fn select_id(&mut self, id: NodeId) {
         if let Some(index) = self.visible().iter().position(|node| node.id == id) {
             self.selected = index;
@@ -424,77 +546,86 @@ impl Tree {
     /// directory — was not there when it was last read, and what was already
     /// open under each stays open.
     pub fn reveal(&mut self, path: &Path) {
-        let Some(relative) = path
-            .parent()
-            .and_then(|parent| parent.strip_prefix(&self.root).ok())
+        let Some((root, root_path)) = self
+            .roots
+            .iter()
+            .filter_map(|node| match &node.kind {
+                NodeKind::Root { path: root, .. } if path.starts_with(root) => {
+                    Some((node.id, root.clone()))
+                }
+                _ => None,
+            })
+            .max_by_key(|(_, root)| root.components().count())
         else {
             return;
         };
-        let mut dir = self.root.clone();
-        let fresh = self.list(&dir);
-        let kept = std::mem::take(&mut self.roots);
-        self.roots = merge(kept, fresh);
+        let Some(relative) = path
+            .parent()
+            .and_then(|parent| parent.strip_prefix(&root_path).ok())
+        else {
+            return;
+        };
 
-        let mut parent = None;
+        let mut dir = root_path;
+        self.refresh(root, &dir);
+        let mut parent = root;
         for component in relative.components() {
             dir.push(component);
-            let siblings = match parent.and_then(|id| self.find(id)) {
-                Some(node) => &node.children,
-                None => &self.roots,
-            };
-            let Some(id) = siblings
-                .iter()
-                .find(|node| matches!(&node.kind, NodeKind::Dir { path, .. } if *path == dir))
-                .map(|node| node.id)
-            else {
+            let Some(id) = self.find(parent).and_then(|node| {
+                node.children
+                    .iter()
+                    .find(|node| matches!(&node.kind, NodeKind::Dir { path, .. } if *path == dir))
+                    .map(|node| node.id)
+            }) else {
                 return;
             };
-            let fresh = self.list(&dir);
-            if let Some(node) = self.find_mut(id) {
-                let kept = std::mem::take(&mut node.children);
-                node.children = merge(kept, fresh);
-                node.state = LoadState::Loaded;
-                node.expanded = true;
-            }
-            parent = Some(id);
+            self.refresh(id, &dir);
+            parent = id;
         }
 
-        let siblings = match parent.and_then(|id| self.find(id)) {
-            Some(node) => &node.children,
-            None => &self.roots,
-        };
-        if let Some(id) = siblings
-            .iter()
-            .find(|node| matches!(&node.kind, NodeKind::File { path: file, .. } if file == path))
-            .map(|node| node.id)
-        {
+        if let Some(id) = self.find(parent).and_then(|node| {
+            node.children
+                .iter()
+                .find(
+                    |node| matches!(&node.kind, NodeKind::File { path: file, .. } if file == path),
+                )
+                .map(|node| node.id)
+        }) {
             self.select_id(id);
         }
     }
 
-    /// Reads the selected node again from disk — or, for a request, the
-    /// directory it sits in, since that is where a new file would appear. The
-    /// top level is read again when nothing narrower applies.
-    pub fn reload_selected(&mut self) -> String {
+    /// Reads a directory under `id` again and opens it, keeping what was
+    /// open under it.
+    fn refresh(&mut self, id: NodeId, dir: &Path) {
+        let fresh = self.list(dir);
+        if let Some(node) = self.find_mut(id) {
+            let kept = std::mem::take(&mut node.children);
+            node.children = merge(kept, fresh);
+            node.state = LoadState::Loaded;
+            node.expanded = true;
+        }
+    }
+
+    /// Reads the selected node again from disk — or, for a request, what it
+    /// sits in, since that is where a new file would appear. Says what it
+    /// read, or nothing when there is nothing selected to read.
+    pub fn reload_selected(&mut self) -> Option<String> {
         let mut target = self.selected_id();
         while let Some(id) = target {
             match self.find(id).map(|node| &node.kind) {
                 Some(
-                    NodeKind::Dir { .. } | NodeKind::Collection { .. } | NodeKind::Spec { .. },
+                    NodeKind::Root { .. }
+                    | NodeKind::Dir { .. }
+                    | NodeKind::Collection { .. }
+                    | NodeKind::Spec { .. },
                 ) => break,
                 _ => target = self.parent_of(id),
             }
         }
 
-        let Some(id) = target else {
-            let root = self.root.clone();
-            self.roots = self.list(&root);
-            self.clamp_selection();
-            return "the collections".to_string();
-        };
-        let Some(kind) = self.find(id).map(|node| node.kind.clone()) else {
-            return String::new();
-        };
+        let id = target?;
+        let kind = self.find(id)?.kind.clone();
         let children = self.children_of(&kind);
         let children = self.or_empty(children);
         if let Some(node) = self.find_mut(id) {
@@ -504,10 +635,11 @@ impl Tree {
         }
         self.clamp_selection();
         match kind {
-            NodeKind::Dir { name, .. }
+            NodeKind::Root { name, .. }
+            | NodeKind::Dir { name, .. }
             | NodeKind::Collection { name, .. }
-            | NodeKind::Spec { name, .. } => name,
-            _ => String::new(),
+            | NodeKind::Spec { name, .. } => Some(name),
+            _ => None,
         }
     }
 }
@@ -550,12 +682,26 @@ mod tests {
         dir
     }
 
+    fn collection_at(name: &str, path: PathBuf, source: Source) -> Collection {
+        Collection {
+            name: name.into(),
+            path,
+            source,
+        }
+    }
+
+    /// A tree of the one collection, which starts open.
+    fn tree_of(dir: PathBuf) -> Tree {
+        Tree::new(&[collection_at("c", dir, Source::User)])
+    }
+
     fn names(tree: &Tree) -> Vec<String> {
         tree.visible()
             .iter()
             .filter_map(|visible| tree.find(visible.id))
             .map(|node| match &node.kind {
-                NodeKind::Dir { name, .. }
+                NodeKind::Root { name, .. }
+                | NodeKind::Dir { name, .. }
                 | NodeKind::File { name, .. }
                 | NodeKind::Collection { name, .. }
                 | NodeKind::Folder { name }
@@ -570,40 +716,93 @@ mod tests {
 
     #[test]
     fn directories_load_as_they_are_opened() {
-        let tree_root = scratch("lazy");
-        let mut tree = Tree::new(tree_root);
-        assert_eq!(names(&tree), vec!["users", "api.postman_collection.json"]);
+        let mut tree = tree_of(scratch("lazy"));
+        assert_eq!(
+            names(&tree),
+            vec!["c", "users", "api.postman_collection.json"]
+        );
 
-        let users = tree.visible()[0].id;
+        let users = tree.visible()[1].id;
         tree.toggle(users);
         assert_eq!(
             names(&tree),
-            vec!["users", "list.http", "api.postman_collection.json"]
+            vec!["c", "users", "list.http", "api.postman_collection.json"]
         );
-        assert!(tree.find(tree.visible()[1].id).unwrap().origin().is_some());
+        assert!(tree.find(tree.visible()[2].id).unwrap().origin().is_some());
     }
 
     #[test]
     fn a_collection_opens_with_its_folders_open() {
-        let mut tree = Tree::new(scratch("postman"));
-        let collection = tree.visible()[1].id;
+        let mut tree = tree_of(scratch("postman"));
+        let collection = tree.visible()[2].id;
         tree.toggle(collection);
         assert_eq!(
             names(&tree),
-            vec!["users", "api.postman_collection.json", "Auth", "Login"]
+            vec!["c", "users", "api.postman_collection.json", "Auth", "Login"]
         );
     }
 
     #[test]
     fn a_new_file_appears_when_its_directory_is_reloaded() {
         let root = scratch("reload");
-        let mut tree = Tree::new(root.clone());
-        let users = tree.visible()[0].id;
+        let mut tree = tree_of(root.clone());
+        let users = tree.visible()[1].id;
         tree.toggle(users);
         std::fs::write(root.join("users").join("create.http"), "POST https://x\n").unwrap();
 
-        tree.selected = 1;
-        assert_eq!(tree.reload_selected(), "users");
+        tree.selected = 2;
+        assert_eq!(tree.reload_selected().as_deref(), Some("users"));
         assert!(names(&tree).contains(&"create.http".to_string()));
+    }
+
+    #[test]
+    fn only_the_collections_you_came_for_start_open() {
+        let dir = scratch("which-open");
+        let tree = Tree::new(&[
+            collection_at("api", dir.join("users"), Source::Project),
+            collection_at("mine", dir.clone(), Source::User),
+        ]);
+        assert_eq!(names(&tree), vec!["api", "list.http", "mine"]);
+    }
+
+    #[test]
+    fn a_collection_that_is_one_file_holds_its_requests() {
+        let dir = scratch("one-file");
+        let tree = tree_of(dir.join("api.postman_collection.json"));
+        assert_eq!(names(&tree), vec!["c", "Auth", "Login"]);
+    }
+
+    #[test]
+    fn a_collection_that_is_not_there_says_so() {
+        let dir = scratch("missing");
+        let tree = tree_of(dir.join("gone"));
+        let note = &names(&tree)[1];
+        assert!(note.ends_with("is not there"), "{note}");
+    }
+
+    #[test]
+    fn a_new_list_of_collections_keeps_the_ones_still_there_as_they_were() {
+        let dir = scratch("sync");
+        let mine = collection_at("mine", dir.clone(), Source::User);
+        let mut tree = tree_of(dir.clone());
+        tree.sync(std::slice::from_ref(&mine));
+        tree.select_root("mine");
+        let users = tree.visible()[1].id;
+        tree.toggle(users);
+
+        tree.sync(&[
+            collection_at("api", dir.join("users"), Source::Project),
+            mine,
+        ]);
+        assert_eq!(
+            names(&tree),
+            vec![
+                "api",
+                "mine",
+                "users",
+                "list.http",
+                "api.postman_collection.json"
+            ]
+        );
     }
 }

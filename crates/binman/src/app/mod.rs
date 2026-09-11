@@ -17,8 +17,8 @@ use binman_core::history::{self, History};
 use binman_core::oauth2::Grant;
 use binman_core::request::{header, set_header};
 use binman_core::{
-    AuthKind, Client, EnvSource, Error, Format, Origin, Prepared, Request, Vars, auth, collection,
-    env, vars,
+    AuthKind, Client, Collection, EnvSource, Error, Format, Origin, Prepared, Request, Vars,
+    Workspace, auth, collection, env, vars,
 };
 use ratatui::style::Style;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
@@ -101,8 +101,12 @@ enum EnvChoice {
     Label(String),
 }
 
+/// Said wherever a request needs a collection to go in and there is none.
+const NO_COLLECTION: &str = "There is no collection to save it in — binman <dir> opens one, or list yours in collections.json";
+
 pub struct App {
-    pub root: PathBuf,
+    /// Every collection in play, from every file that lists one.
+    pub workspace: Workspace,
     pub client: Arc<Client>,
     pub history: History,
     pub tree: Tree,
@@ -127,14 +131,14 @@ pub struct App {
 
 impl App {
     pub fn new(
-        root: PathBuf,
+        workspace: Workspace,
         client: Client,
         history: History,
     ) -> (App, UnboundedReceiver<Message>) {
         let (tx, rx) = unbounded_channel();
         let mut app = App {
-            tree: Tree::new(root.clone()),
-            root,
+            tree: Tree::new(workspace.collections()),
+            workspace,
             client: Arc::new(client),
             history,
             tabs: Vec::new(),
@@ -191,7 +195,10 @@ impl App {
 
     fn push_tab(&mut self) {
         self.next_tab_id += 1;
-        let envs = env::discover(&self.root, &self.root);
+        let envs = match self.home() {
+            Some(home) => env::discover(&home.path, &home.path),
+            None => Vec::new(),
+        };
         let env = self.choose_env(&envs);
         let mut tab = Tab::blank(self.next_tab_id, envs, env);
         let loaded = tab.reload_env();
@@ -265,16 +272,39 @@ impl App {
     pub fn describe(&self, tab: &Tab) -> String {
         match &tab.origin {
             None => tab.title.clone(),
-            Some(origin @ Origin::File(_)) => collection::relative(&self.root, origin.path()),
-            Some(origin) => format!(
-                "{} › {}",
-                collection::relative(&self.root, origin.path()),
-                tab.title
-            ),
+            Some(origin @ Origin::File(_)) => self.workspace.display(origin.path()),
+            Some(origin) => format!("{} › {}", self.workspace.display(origin.path()), tab.title),
         }
     }
 
     // --- collections ---
+
+    /// The collection being worked in: the one the selected row sits in, or
+    /// else the first that is a directory. A new request is saved there, and
+    /// a new tab starts with its environments.
+    fn home(&self) -> Option<&Collection> {
+        let selected = self
+            .tree
+            .selected_collection()
+            .and_then(|name| self.workspace.get(name));
+        selected
+            .filter(|collection| collection.is_dir())
+            .or_else(|| {
+                self.workspace
+                    .collections()
+                    .iter()
+                    .find(|collection| collection.is_dir())
+            })
+    }
+
+    /// Where a relative path is taken from when no request file says
+    /// otherwise.
+    fn base(&self) -> PathBuf {
+        match self.home() {
+            Some(home) => home.path.clone(),
+            None => std::env::current_dir().unwrap_or_default(),
+        }
+    }
 
     /// Enter on a node: open the request, or open the folder.
     pub fn activate_selected(&mut self) {
@@ -296,9 +326,18 @@ impl App {
         }
     }
 
+    /// Reads the lists of collections again as well as the files, so a
+    /// `.binman.json` that a pull has changed arrives with what it lists.
     pub fn reload_tree(&mut self) {
-        let what = self.tree.reload_selected();
-        self.info(format!("Reloaded {what}"));
+        if let Err(error) = self.workspace.reload() {
+            self.error(error.to_string());
+            return;
+        }
+        self.tree.sync(self.workspace.collections());
+        match self.tree.reload_selected() {
+            Some(what) => self.info(format!("Reloaded {what}")),
+            None => self.info("Reloaded the collections"),
+        }
     }
 
     /// Opens a request, in the tab that already has it if one does.
@@ -311,7 +350,8 @@ impl App {
             self.active = index;
             return;
         }
-        let loaded = match origin.load(&self.root) {
+        let root = self.workspace.root_for(origin.path());
+        let loaded = match origin.load(&root) {
             Ok(loaded) => loaded,
             Err(error) => {
                 self.error(error.to_string());
@@ -320,7 +360,7 @@ impl App {
         };
 
         self.claim_tab();
-        let envs = env::discover(origin.dir(), &self.root);
+        let envs = env::discover(origin.dir(), &root);
         let env = self.choose_env(&envs);
         let title = loaded.title.clone();
         let tab = self.tab_mut();
@@ -340,7 +380,8 @@ impl App {
             self.warn(error);
         }
 
-        let (prepared, grant) = match prepare(&self.tabs[index], &self.extracted, &self.root) {
+        let base = self.base();
+        let (prepared, grant) = match prepare(&self.tabs[index], &self.extracted, &base) {
             Ok(prepared) => prepared,
             Err(message) => {
                 self.error(message);
@@ -497,7 +538,7 @@ impl App {
         match self.write_request(&origin) {
             Ok(()) => {
                 self.tab_mut().mark_saved();
-                let name = collection::relative(&self.root, origin.path());
+                let name = self.workspace.display(origin.path());
                 if origin.savable() == Some(Format::Http) && self.tab().auth.kind != AuthKind::None
                 {
                     self.warn(format!(
@@ -531,7 +572,13 @@ impl App {
     /// Asks where to write a request that came from nowhere on disk: a new
     /// tab, or one sent again from the history.
     pub fn open_save_request(&mut self) {
-        let suggested = self.root.join("request.http");
+        let suggested = match self.home() {
+            Some(home) => home.path.join("request.http"),
+            None => {
+                self.warn(NO_COLLECTION);
+                return;
+            }
+        };
         self.overlay = Some(Overlay::SaveRequest(SavePrompt {
             input: LineInput::new(suggested.display().to_string()),
             error: None,
@@ -564,14 +611,15 @@ impl App {
             }
         };
 
-        let envs = env::discover(origin.dir(), &self.root);
+        let root = self.workspace.root_for(origin.path());
+        let envs = env::discover(origin.dir(), &root);
         let env = self.choose_env(&envs);
         let collection_vars = if origin.savable() == Some(Format::Bru) {
-            bru::collection_vars(origin.dir(), &self.root)
+            bru::collection_vars(origin.dir(), &root)
         } else {
             Vars::new()
         };
-        let name = collection::relative(&self.root, origin.path());
+        let name = self.workspace.display(origin.path());
         self.tree.reveal(origin.path());
 
         let tab = self.tab_mut();
@@ -593,7 +641,8 @@ impl App {
         }
     }
 
-    /// Where a typed name puts a new request file. A name that is neither
+    /// Where a typed name puts a new request file: under the collection its
+    /// first part names, or the one being worked in. A name that is neither
     /// `.http` nor `.bru` gets `.http` added to it, and nothing is written
     /// over a file that is already there.
     fn new_file(&self, typed: &str) -> Result<PathBuf, String> {
@@ -604,7 +653,9 @@ impl App {
         let mut path = if typed.is_absolute() {
             typed
         } else {
-            self.root.join(typed)
+            self.workspace
+                .locate(&typed, self.home())
+                .ok_or(NO_COLLECTION)?
         };
         match Format::of(&path) {
             Some(Format::Http | Format::Bru) => {}
@@ -623,16 +674,15 @@ impl App {
 
         // `..` is refused rather than followed: the file is not there yet, so
         // there is nothing to canonicalize and see where it really lands.
-        if path.components().any(|part| part == Component::ParentDir)
-            || !path.starts_with(&self.root)
-        {
-            return Err(format!(
-                "{} is outside the collections in {}",
-                path.display(),
-                self.root.display()
-            ));
+        let inside = self
+            .workspace
+            .collections()
+            .iter()
+            .any(|collection| collection.is_dir() && path.starts_with(&collection.path));
+        if path.components().any(|part| part == Component::ParentDir) || !inside {
+            return Err(format!("{} is outside the collections", path.display()));
         }
-        let name = collection::relative(&self.root, &path);
+        let name = self.workspace.display(&path);
         if path
             .file_name()
             .is_some_and(|file| file.to_string_lossy().starts_with('.'))
@@ -652,7 +702,7 @@ impl App {
             self.warn("There is no response to save yet");
             return;
         }
-        let suggested = self.root.join("response.txt");
+        let suggested = self.base().join("response.txt");
         self.overlay = Some(Overlay::SaveResponse(SavePrompt {
             input: LineInput::new(suggested.display().to_string()),
             error: None,
@@ -667,7 +717,7 @@ impl App {
         let path = if typed.is_absolute() {
             typed
         } else {
-            self.root.join(typed)
+            self.base().join(typed)
         };
         let Some(received) = self.tab().response.received() else {
             self.overlay = None;
@@ -692,8 +742,9 @@ impl App {
     /// Shows the request as a curl command and hands it to the clipboard.
     pub fn copy_curl(&mut self) {
         self.tab_mut().commit_edits();
+        let base = self.base();
         let tab = self.tab();
-        let (prepared, grant) = match prepare(tab, &self.extracted, &self.root) {
+        let (prepared, grant) = match prepare(tab, &self.extracted, &base) {
             Ok(prepared) => prepared,
             Err(message) => {
                 self.error(message);
@@ -796,9 +847,24 @@ impl App {
     }
 
     pub fn open_find(&mut self) {
-        let found = collection::index(&self.root);
+        // Where a request sits starts with which collection, once there is
+        // more than one it could be in.
+        let qualified = self.workspace.collections().len() > 1;
+        let mut found = Vec::new();
+        for registered in self.workspace.collections() {
+            for mut request in collection::index(&registered.path) {
+                if qualified {
+                    request.location = if request.location.is_empty() {
+                        registered.name.clone()
+                    } else {
+                        format!("{}/{}", registered.name, request.location)
+                    };
+                }
+                found.push(request);
+            }
+        }
         if found.is_empty() {
-            self.warn(format!("No requests under {}", self.root.display()));
+            self.warn("No requests in any collection");
             return;
         }
         let entries = found
@@ -870,7 +936,7 @@ impl App {
             detail: format!(
                 "{} · {}",
                 source.kind.label(),
-                collection::relative(&self.root, &source.path)
+                self.workspace.display(&source.path)
             ),
             hint: "",
             action: Action::UseEnv(Some(index)),
@@ -1031,10 +1097,13 @@ impl App {
 /// The request as it will go on the wire: every variable resolved, the body
 /// encoded, the auth header added. Refuses, sending nothing, when the URL still
 /// names a variable nothing defines — it could only go somewhere wrong.
+///
+/// `base` is where a file to upload is looked for when the request has no
+/// file of its own to be beside.
 pub(crate) fn prepare(
     tab: &Tab,
     extracted: &Vars,
-    root: &Path,
+    base: &Path,
 ) -> Result<(Prepared, Option<Grant>), String> {
     let scope = tab.scope(extracted);
     let url = scope.resolve(tab.url.text().trim());
@@ -1062,8 +1131,8 @@ pub(crate) fn prepare(
         BodyKind::None => Vec::new(),
         BodyKind::Form => body::encode_form(&resolve_rows(&tab.form.rows)).into_bytes(),
         BodyKind::Multipart => {
-            let base = tab.origin.as_ref().map_or(root, Origin::dir);
-            let encoded = body::multipart(&resolve_rows(&tab.form.rows), Some(base))
+            let dir = tab.origin.as_ref().map_or(base, Origin::dir);
+            let encoded = body::multipart(&resolve_rows(&tab.form.rows), Some(dir))
                 .map_err(|error| error.to_string())?;
             set_header(&mut headers, "Content-Type", encoded.content_type);
             encoded.body
