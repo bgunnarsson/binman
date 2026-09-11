@@ -248,6 +248,7 @@ const SECTIONS: &[Section] = &[
             ("⌥h ⌥k ⌥l ⌥j", "Collections / URL / request / response"),
             ("F1 or ?", "This help"),
             ("F5", "Reload the selected folder"),
+            ("drag an edge", "Resize the panes"),
             ("⌃Q", "Quit"),
         ],
     ),

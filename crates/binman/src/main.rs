@@ -153,10 +153,13 @@ async fn run(
             event = events.next() => match event {
                 Some(Ok(Event::Key(key))) => keys::handle(app, key),
                 Some(Ok(Event::Paste(text))) => app.paste(&text),
-                // The pointer moving, button held or not, changes nothing on
-                // screen; drawing for every cell it crosses would be waste.
+                // The pointer moving changes nothing on screen unless it is
+                // pulling a seam; drawing for every cell it crosses would be
+                // waste.
                 Some(Ok(Event::Mouse(event)))
-                    if matches!(event.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) =>
+                    if event.kind == MouseEventKind::Moved
+                        || (matches!(event.kind, MouseEventKind::Drag(_))
+                            && app.dragging.is_none()) =>
                 {
                     redraw = false;
                 }

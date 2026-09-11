@@ -4,6 +4,11 @@
 //! picker — and a click is looked up in what was drawn last. A click on a row
 //! that is already selected does what Enter does there, so the mouse reaches
 //! the same things the keys do and behaves the same once it gets there.
+//!
+//! The one thing the mouse does that no key does is pull the seams between
+//! the panes. How much room the collections, the request and the response
+//! each want depends on what is in them, which no layout rule can know — so
+//! it is left to the hand.
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
@@ -67,6 +72,16 @@ impl Target {
     }
 }
 
+/// A seam between panes that can be dragged.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Divider {
+    /// Between the collections and the request over the response. Moves left
+    /// and right.
+    Sidebar,
+    /// Between the request and the response. Moves up and down.
+    Split,
+}
+
 /// Where each target was drawn, in the order it was.
 #[derive(Debug, Default)]
 pub struct Targets(Vec<(Rect, Target)>);
@@ -86,12 +101,27 @@ impl Targets {
             .find(|(area, _)| area.contains(Position::new(column, row)))
             .copied()
     }
+
+    /// Where a pane was drawn, border and all.
+    fn pane(&self, pane: Pane) -> Option<Rect> {
+        self.0
+            .iter()
+            .find(|(_, target)| *target == Target::Pane(pane))
+            .map(|(area, _)| *area)
+    }
 }
 
 pub fn handle(app: &mut App, event: MouseEvent) {
     let under = app.targets.at(event.column, event.row);
     match event.kind {
-        MouseEventKind::Down(MouseButton::Left) => click(app, under, event.column),
+        MouseEventKind::Down(MouseButton::Left) => {
+            app.dragging = divider_at(app, under, event);
+            if app.dragging.is_none() {
+                click(app, under, event.column);
+            }
+        }
+        MouseEventKind::Drag(MouseButton::Left) => drag(app, event),
+        MouseEventKind::Up(MouseButton::Left) => app.dragging = None,
         // A middle click closes a tab, as it does in a browser.
         MouseEventKind::Down(MouseButton::Middle) => {
             if app.overlay.is_none()
@@ -104,6 +134,59 @@ pub fn handle(app: &mut App, event: MouseEvent) {
         MouseEventKind::ScrollDown => scroll(app, under, 1, event),
         MouseEventKind::ScrollUp => scroll(app, under, -1, event),
         _ => {}
+    }
+}
+
+/// Which seam a press landed on, if either.
+///
+/// Two lines count for each: a pane's own border and the one drawn against
+/// it. A single line is a hard thing to hit with a pointer, and the two are
+/// touching, so anyone aiming at the seam means either. Only bare border
+/// counts — a view drawn in the response's top border is still a view to
+/// click — and nothing behind an open modal is within reach.
+fn divider_at(app: &App, under: Option<(Rect, Target)>, event: MouseEvent) -> Option<Divider> {
+    if app.overlay.is_some() || !matches!(under, Some((_, Target::Pane(_)))) {
+        return None;
+    }
+    let (column, row) = (event.column, event.row);
+
+    if let Some(collections) = app.targets.pane(Pane::Collections) {
+        let edge = collections.right().saturating_sub(1);
+        if (column == edge || column == edge.saturating_add(1))
+            && row >= collections.y
+            && row < collections.bottom()
+        {
+            return Some(Divider::Sidebar);
+        }
+    }
+    if let Some(request) = app.targets.pane(Pane::Request) {
+        let edge = request.bottom().saturating_sub(1);
+        if (row == edge || row == edge.saturating_add(1))
+            && column >= request.x
+            && column < request.right()
+        {
+            return Some(Divider::Split);
+        }
+    }
+    None
+}
+
+/// Moves the seam being dragged to the pointer. The border is drawn on the
+/// cell under the pointer, so the pane runs one past it.
+fn drag(app: &mut App, event: MouseEvent) {
+    match app.dragging {
+        Some(Divider::Sidebar) => {
+            if let Some(collections) = app.targets.pane(Pane::Collections) {
+                app.explorer_width =
+                    Some(event.column.saturating_add(1).saturating_sub(collections.x));
+            }
+        }
+        Some(Divider::Split) => {
+            if let Some(request) = app.targets.pane(Pane::Request) {
+                app.request_height = Some(event.row.saturating_add(1).saturating_sub(request.y));
+            }
+        }
+        None => {}
     }
 }
 
