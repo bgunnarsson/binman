@@ -20,6 +20,35 @@ use crate::theme;
 /// v1's sidebar width, held to two fifths of a narrow terminal so the request
 /// and the response keep most of it.
 const EXPLORER_WIDTH: u16 = 48;
+/// How narrow a dragged sidebar goes: a tree row still has room for a name.
+const EXPLORER_MIN: u16 = 20;
+/// What the request and the response keep however far the sidebar is pulled.
+const WORKSPACE_MIN: u16 = 40;
+/// A border, a row, a border. Less than this is not a smaller pane but a
+/// broken one.
+const PANE_MIN: u16 = 3;
+
+/// How wide the sidebar is drawn: what someone dragged it to, or v1's width
+/// when nobody has. Fitted here rather than where the drag is recorded, so a
+/// window resize re-fits it instead of leaving it at a width the terminal no
+/// longer has.
+fn explorer_width(app: &App, area: Rect) -> u16 {
+    let default = EXPLORER_WIDTH.min(area.width * 2 / 5);
+    match app.explorer_width {
+        Some(width) => {
+            let ceiling = area.width.saturating_sub(WORKSPACE_MIN).max(default);
+            width.clamp(EXPLORER_MIN.min(default), ceiling)
+        }
+        None => default,
+    }
+}
+
+/// A dragged request height, bounded so neither it nor the response below can
+/// be squeezed out.
+fn request_height(height: u16, area: Rect) -> u16 {
+    let ceiling = area.height.saturating_sub(PANE_MIN).max(PANE_MIN);
+    height.clamp(PANE_MIN, ceiling)
+}
 
 /// v1's arrangement: the header with the environment picker at its right, the
 /// URL across the whole width, then the collections beside the request over
@@ -39,10 +68,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ])
         .split(area);
 
-    let explorer_width = EXPLORER_WIDTH.min(rows[3].width * 2 / 5);
     let columns = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(explorer_width), Constraint::Min(20)])
+        .constraints([
+            Constraint::Length(explorer_width(app, rows[3])),
+            Constraint::Min(20),
+        ])
         .split(rows[3]);
 
     // Filled as each part is drawn, so a click is looked up in exactly what
@@ -83,11 +114,20 @@ fn recede(frame: &mut Frame, area: Rect, amount: f32) {
 }
 
 /// The response gets the larger share: it is what is read, while the request
-/// is mostly a few headers. Two to five, as v1 split them.
+/// is mostly a few headers. Two to five, as v1 split them — until the seam is
+/// dragged, which replaces the share with a height, so nobody who never
+/// reaches for it sees the layout shift under them.
 fn draw_workspace(frame: &mut Frame, app: &mut App, area: Rect, targets: &mut Targets) {
+    let constraints = match app.request_height {
+        Some(height) => [
+            Constraint::Length(request_height(height, area)),
+            Constraint::Min(0),
+        ],
+        None => [Constraint::Fill(2), Constraint::Fill(5)],
+    };
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Fill(2), Constraint::Fill(5)])
+        .constraints(constraints)
         .split(area);
 
     request::draw(frame, app, rows[0], targets);

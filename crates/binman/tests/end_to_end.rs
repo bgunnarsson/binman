@@ -1020,6 +1020,123 @@ async fn the_wheel_scrolls_what_is_under_it() {
     assert_eq!(app.tab().response.scroll, 3);
 }
 
+/// A press, a drag and a release, the way a seam is pulled.
+fn drag(app: &mut App, from: (u16, u16), to: (u16, u16)) {
+    mouse(app, MouseEventKind::Down(MouseButton::Left), from.0, from.1);
+    mouse(app, MouseEventKind::Drag(MouseButton::Left), to.0, to.1);
+    mouse(app, MouseEventKind::Up(MouseButton::Left), to.0, to.1);
+}
+
+/// Where the two seams are drawn: the column of the sidebar's right border and
+/// the row of the request's bottom border, which sits on the response's top.
+fn seams(app: &mut App) -> (u16, u16) {
+    let screen = render(app);
+    let lines: Vec<&str> = screen.lines().collect();
+    let row_of = |needle: &str| {
+        lines
+            .iter()
+            .position(|line| line.contains(needle))
+            .unwrap_or_else(|| panic!("{needle} not drawn:\n{screen}"))
+    };
+    let edge = lines[row_of("Collections")]
+        .chars()
+        .position(|ch| ch == '╮')
+        .unwrap_or_else(|| panic!("the sidebar has no corner:\n{screen}"));
+    (edge as u16, row_of("Cookies") as u16 - 1)
+}
+
+#[tokio::test]
+async fn dragging_the_sidebar_s_edge_resizes_it() {
+    let root = collection("drag-sidebar");
+    let (mut app, _messages) = app(&root);
+
+    let (edge, split) = seams(&mut app);
+    assert_eq!(edge, 47, "v1's width until someone drags it");
+    let row = split + 2;
+
+    drag(&mut app, (edge, row), (edge + 14, row));
+    assert_eq!(
+        seams(&mut app).0,
+        edge + 14,
+        "the sidebar follows the pointer"
+    );
+
+    // From the request's side of the seam, and in past where it started.
+    let (edge, _) = seams(&mut app);
+    drag(&mut app, (edge + 1, row), (30, row));
+    assert_eq!(seams(&mut app).0, 30, "and back in");
+
+    // Neither side can be squeezed out.
+    drag(&mut app, (30, row), (0, row));
+    assert_eq!(seams(&mut app).0, 19, "the tree keeps room for a name");
+    drag(&mut app, (19, row), (WIDTH + 40, row));
+    assert_eq!(
+        seams(&mut app).0,
+        WIDTH - 41,
+        "the request and the response keep forty columns"
+    );
+
+    // A press that misses the seam is a click, not a drag.
+    let (edge, _) = seams(&mut app);
+    drag(&mut app, (edge - 6, row), (edge - 20, row));
+    assert_eq!(
+        seams(&mut app).0,
+        edge,
+        "a press away from the seam resizes nothing"
+    );
+
+    // A window that shrinks re-fits the sidebar rather than stranding it.
+    let terminal = draw(&mut app, 60, 20);
+    let buffer = terminal.backend().buffer();
+    let line = |y: u16| (0..60).map(|x| buffer[(x, y)].symbol()).collect::<String>();
+    let top = (0..20)
+        .find(|&y| line(y).contains("Collections"))
+        .expect("the collections are drawn");
+    assert_eq!(
+        line(top).chars().position(|ch| ch == '╮'),
+        Some(23),
+        "the sidebar fits the smaller terminal:\n{}",
+        line(top)
+    );
+}
+
+#[tokio::test]
+async fn dragging_the_seam_under_the_request_moves_it_either_way() {
+    let root = collection("drag-split");
+    let (mut app, _messages) = app(&root);
+
+    let top = locate(&mut app, "Params").1;
+    let (_, split) = seams(&mut app);
+    // Clear of the views drawn in the response's top border, which are
+    // clicked rather than dragged.
+    let column = WIDTH - 10;
+
+    drag(&mut app, (column, split), (column, split - 4));
+    assert_eq!(
+        seams(&mut app).1,
+        split - 4,
+        "the response takes what the request gave up"
+    );
+
+    // From the response's side of the seam.
+    drag(&mut app, (column, split - 3), (column, split + 6));
+    assert_eq!(
+        seams(&mut app).1,
+        split + 6,
+        "and the request takes it back"
+    );
+
+    // Neither can be squeezed out of existence, from either end.
+    drag(&mut app, (column, split + 6), (column, 0));
+    assert_eq!(seams(&mut app).1, top + 2, "the request keeps a row");
+    drag(&mut app, (column, top + 2), (column, HEIGHT));
+    assert_eq!(
+        seams(&mut app).1,
+        HEIGHT - 5,
+        "the response keeps a row above the status line"
+    );
+}
+
 #[tokio::test]
 async fn a_click_away_closes_a_list_and_a_click_on_an_entry_runs_it() {
     let root = collection("mouse-lists");

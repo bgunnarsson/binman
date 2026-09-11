@@ -287,8 +287,9 @@ editing, or goes back to the collections.
 The mouse works too: click a pane, tab, section, tree row, the environment
 picker, the method, or **Send** at the end of the URL bar, which becomes
 **Cancel** while a request is out. Clicking a selected row edits it, the wheel
-scrolls, and a middle click closes a tab. Hold Shift (Option in iTerm2) to
-select text.
+scrolls, and a middle click closes a tab. Drag the edge between the collections
+and the request, or between the request and the response, to resize them. Hold
+Shift (Option in iTerm2) to select text.
 
 Opening a request reuses the current tab unless it has edits (`•`) or a request
 in flight (`◐`). Extraction rules and typed variables do not count as edits, and

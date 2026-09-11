@@ -131,6 +131,13 @@ pub struct App {
     pub clipboard: Option<String>,
     /// What the last draw put where, for a click to be looked up in.
     pub targets: mouse::Targets,
+    /// The sidebar width and request height someone has dragged to, if they
+    /// have. Held raw and fitted at draw time, where the terminal's size is
+    /// known — so a window resize re-fits them instead of stranding them.
+    pub explorer_width: Option<u16>,
+    pub request_height: Option<u16>,
+    /// The seam being dragged, while one is.
+    pub dragging: Option<mouse::Divider>,
     pub should_quit: bool,
     env_choice: EnvChoice,
     next_tab_id: u64,
@@ -157,6 +164,9 @@ impl App {
             extracted: Vars::new(),
             clipboard: None,
             targets: mouse::Targets::default(),
+            explorer_width: None,
+            request_height: None,
+            dragging: None,
             should_quit: false,
             env_choice: EnvChoice::First,
             next_tab_id: 0,
