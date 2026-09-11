@@ -397,17 +397,16 @@ impl Workspace {
     /// A path as a file writes it: relative to the project file, so every
     /// clone reads it the same, or from your home in your own.
     fn written(&self, path: &Path, scope: Scope) -> String {
-        let (base, prefix) = match scope {
-            Scope::Project => (self.project_path.as_deref().map(base_of), ""),
-            Scope::User => (dirs::home_dir(), "~/"),
+        let Scope::Project = scope else {
+            return tilde(path);
         };
+        let base = self.project_path.as_deref().map(base_of);
         match base
             .as_deref()
             .and_then(|base| path.strip_prefix(base).ok())
         {
-            Some(rest) if rest.as_os_str().is_empty() && prefix.is_empty() => ".".to_string(),
-            Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
-            Some(rest) => format!("{prefix}{}", portable(rest)),
+            Some(rest) if rest.as_os_str().is_empty() => ".".to_string(),
+            Some(rest) => portable(rest),
             None => path.display().to_string(),
         }
     }
@@ -513,14 +512,27 @@ fn check_name(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// A path from your home, as `~/…`, when it is under there — how your own
+/// file writes one, and how one is worth showing.
+pub fn tilde(path: &Path) -> String {
+    match dirs::home_dir()
+        .as_deref()
+        .and_then(|home| path.strip_prefix(home).ok())
+    {
+        Some(rest) if rest.as_os_str().is_empty() => "~".to_string(),
+        Some(rest) => format!("~/{}", portable(rest)),
+        None => path.display().to_string(),
+    }
+}
+
 /// The directory a file's relative paths are taken from.
 fn base_of(file: &Path) -> PathBuf {
     settle(file.parent().unwrap_or(Path::new("")).to_path_buf())
 }
 
-/// A path as a file writes it, taken from `base`: `~` is your home, and a
-/// relative path sits beside the file.
-fn resolve(base: &Path, raw: &str) -> PathBuf {
+/// A path as a file — or a person — writes it, taken from `base`: `~` is your
+/// home, and a relative path starts at `base`.
+pub fn resolve(base: &Path, raw: &str) -> PathBuf {
     let path = match raw.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with(['/', '\\']) => {
             let home = dirs::home_dir().unwrap_or_default();

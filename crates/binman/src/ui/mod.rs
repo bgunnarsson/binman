@@ -296,6 +296,30 @@ pub fn truncate(text: &str, width: usize) -> String {
     out
 }
 
+/// Cuts a string to `width` display columns from the front, for a path whose
+/// end — the file's name — is the part worth reading.
+pub fn truncate_start(text: &str, width: usize) -> String {
+    if UnicodeWidthStr::width(text) <= width {
+        return text.to_string();
+    }
+    if width <= 1 {
+        return "…".to_string();
+    }
+
+    let mut kept = Vec::new();
+    let mut used = 0;
+    for ch in text.chars().rev() {
+        let ch_width = UnicodeWidthChar::width(ch).unwrap_or(0);
+        if used + ch_width > width - 1 {
+            break;
+        }
+        kept.push(ch);
+        used += ch_width;
+    }
+    kept.push('…');
+    kept.into_iter().rev().collect()
+}
+
 pub fn pad(text: &str, width: usize) -> String {
     let used = UnicodeWidthStr::width(text);
     format!("{}{}", text, " ".repeat(width.saturating_sub(used)))
@@ -515,6 +539,8 @@ mod tests {
         assert_eq!(truncate("hello", 10), "hello");
         assert_eq!(truncate("hello world", 8), "hello w…");
         assert_eq!(truncate("hello", 1), "…");
+        assert_eq!(truncate_start("~/repo/.binman.json", 14), "…/.binman.json");
+        assert_eq!(truncate_start("short", 10), "short");
     }
 
     #[test]

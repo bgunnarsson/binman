@@ -16,6 +16,7 @@ use binman_core::formats::{bru, curl};
 use binman_core::history::{self, History};
 use binman_core::oauth2::Grant;
 use binman_core::request::{header, set_header};
+use binman_core::workspace::{self, Scope, Source};
 use binman_core::{
     AuthKind, Client, Collection, EnvSource, Error, Format, Origin, Prepared, Request, Vars,
     Workspace, auth, collection, env, vars,
@@ -27,7 +28,10 @@ use tui_textarea::TextArea;
 
 use crate::{pretty, theme};
 use line::LineInput;
-use overlay::{Action, Command, Entry, EnvEditor, Overlay, Picker, PickerKind, SavePrompt};
+use overlay::{
+    Action, CollectionForm, Command, Entry, EnvEditor, Overlay, Picker, PickerKind, SavePrompt,
+    shown,
+};
 use tab::{Outcome, Received, Section, Tab};
 use tree::Tree;
 
@@ -102,7 +106,11 @@ enum EnvChoice {
 }
 
 /// Said wherever a request needs a collection to go in and there is none.
-const NO_COLLECTION: &str = "There is no collection to save it in — binman <dir> opens one, or list yours in collections.json";
+const NO_COLLECTION: &str = "There is no collection to save it in — a in the collections adds one";
+
+/// Said when e or d is pressed on a row that is not a collection's own.
+const ON_A_COLLECTION: &str =
+    "e and d work on a collection — select its row at the top of the tree";
 
 pub struct App {
     /// Every collection in play, from every file that lists one.
@@ -337,6 +345,133 @@ impl App {
         match self.tree.reload_selected() {
             Some(what) => self.info(format!("Reloaded {what}")),
             None => self.info("Reloaded the collections"),
+        }
+    }
+
+    // --- registering collections ---
+
+    /// The form for a new collection, starting at the directory binman was
+    /// started in: usually the repository whose requests are about to be
+    /// added.
+    pub fn open_add_collection(&mut self) {
+        let here = std::env::current_dir().unwrap_or_default();
+        self.overlay = Some(Overlay::Collection(CollectionForm::new(
+            &self.workspace,
+            &here,
+        )));
+    }
+
+    /// The form over the collection whose row is selected.
+    pub fn edit_collection(&mut self) {
+        let Some(collection) = self.selected_root().cloned() else {
+            self.warn(ON_A_COLLECTION);
+            return;
+        };
+        self.overlay = Some(Overlay::Collection(CollectionForm::editing(
+            &self.workspace,
+            &collection,
+        )));
+    }
+
+    fn selected_root(&self) -> Option<&Collection> {
+        self.tree
+            .selected_root()
+            .and_then(|name| self.workspace.get(name))
+    }
+
+    /// Writes what the form holds into the file its Saved in names, and
+    /// opens the collection in the tree.
+    pub fn save_collection(&mut self) {
+        let Some(Overlay::Collection(form)) = &self.overlay else {
+            return;
+        };
+        let typed = form.path.text().trim().to_string();
+        let path = form.typed_path();
+        let named = form.name.text().trim().to_string();
+        let editing = form.editing.clone();
+        let (scope, file) = (form.scope, form.scope_display());
+
+        match self.register(&typed, &path, &named, editing.as_deref(), scope) {
+            Ok(name) => {
+                self.overlay = None;
+                self.tree.sync(self.workspace.collections());
+                self.tree.select_root(&name);
+                self.focus = Pane::Collections;
+                if editing.is_some() {
+                    self.success(format!("Saved {name} in {file}"));
+                } else {
+                    self.success(format!("Added {name} to {file}"));
+                }
+            }
+            Err(message) => {
+                if let Some(Overlay::Collection(form)) = &mut self.overlay {
+                    form.error = Some(message);
+                }
+            }
+        }
+    }
+
+    /// Checks what the form holds and saves it, answering with the name it
+    /// went under. Left empty, that is what the path points at.
+    fn register(
+        &mut self,
+        typed: &str,
+        path: &Path,
+        named: &str,
+        editing: Option<&str>,
+        scope: Scope,
+    ) -> Result<String, String> {
+        if typed.is_empty() {
+            return Err("Type where the collection is".into());
+        }
+        let path = path
+            .canonicalize()
+            .map_err(|_| format!("{} is not there", path.display()))?;
+        if !path.is_dir() && collection::entry(&path).is_none() {
+            return Err(format!(
+                "binman can't open {} — a collection is a directory of requests, a Postman collection or an OpenAPI spec",
+                path.display()
+            ));
+        }
+        let name = if named.is_empty() {
+            workspace::name_for(&path)
+        } else {
+            named.to_string()
+        };
+        if Some(name.as_str()) != editing && self.workspace.get(&name).is_some() {
+            return Err(format!(
+                "There is already a collection called {name} — give this one another name"
+            ));
+        }
+        self.workspace
+            .set(editing, &name, &path, scope)
+            .map_err(|error| error.to_string())?;
+        Ok(name)
+    }
+
+    /// Takes the selected collection out of the list that keeps it. Its
+    /// requests stay where they are.
+    pub fn remove_collection(&mut self) {
+        let Some(collection) = self.selected_root().cloned() else {
+            self.warn(ON_A_COLLECTION);
+            return;
+        };
+        let from = match collection.source {
+            Source::Project => self.workspace.project_path().map(shown),
+            Source::User => Some(shown(self.workspace.user_path())),
+            Source::Config | Source::Argument => None,
+        };
+        if let Err(error) = self.workspace.remove(&collection.name) {
+            self.error(error.to_string());
+            return;
+        }
+        self.tree.sync(self.workspace.collections());
+        let name = &collection.name;
+        match from {
+            Some(file) => self.success(format!(
+                "Removed {name} from {file} — its requests are still on disk"
+            )),
+            None => self.info(format!("Closed {name}, which was open for this run only")),
         }
     }
 
@@ -827,6 +962,10 @@ impl App {
         if tab.response.received().is_some() {
             commands.push(Command::SaveResponse);
         }
+        commands.push(Command::AddCollection);
+        if self.tree.selected_root().is_some() {
+            commands.extend([Command::EditCollection, Command::RemoveCollection]);
+        }
         commands.extend([Command::Reload, Command::Help, Command::Quit]);
 
         let entries = commands
@@ -971,6 +1110,9 @@ impl App {
             Command::CopyCurl => self.copy_curl(),
             Command::Save | Command::SaveAs => self.save_request(),
             Command::SaveResponse => self.open_save_response(),
+            Command::AddCollection => self.open_add_collection(),
+            Command::EditCollection => self.edit_collection(),
+            Command::RemoveCollection => self.remove_collection(),
             Command::Reload => self.reload_tree(),
             Command::Help => self.overlay = Some(Overlay::Help),
             Command::Quit => self.should_quit = true,
@@ -1079,6 +1221,11 @@ impl App {
             }
             Some(Overlay::Env(editor)) => {
                 editor.editor.insert_str(text);
+            }
+            Some(Overlay::Collection(form)) => {
+                if let Some(input) = form.input() {
+                    input.paste(text);
+                }
             }
             Some(_) => {}
             None => match self.focus {

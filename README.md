@@ -61,6 +61,15 @@ listed beside it. The project's collections and this run's start open; yours
 start closed, so a long list stays a list. `F5` reads both files again, so a
 `.binman.json` that a pull changed arrives without a restart.
 
+Neither file needs writing by hand. `a` in the tree adds a collection: where it
+is, a name — left empty, it is named after its directory or file — and, when
+there is a project to save in, **Saved in**, which names the two files. A new
+collection goes in the project you are standing in; inside a repository with no
+`.binman.json` yet, saving one there creates it at the repository's root. `e`
+on a collection's row edits it, and changing **Saved in** moves it between the
+files. `d` takes it out of its file and leaves its requests where they are.
+`HTTP_FILES` goes when its line in the config does.
+
 Once there is more than one collection, a request's name starts with its
 collection's — `api/users/get.http` — and so can a path typed to save a new
 one.
@@ -268,7 +277,8 @@ event stream is printed once it closes, and the send goes in the history.
 | `⌃Q` | Quit |
 
 In the tree, `j`/`k` move, `l`/`Space` open or close a folder, `h` collapses,
-`Enter` opens a request and `r` reloads. In the URL bar, `↑`/`↓` change the
+`Enter` opens a request, `r` reloads and `a` adds a collection; on a
+collection's own row, `e` edits it and `d` removes it. In the URL bar, `↑`/`↓` change the
 method. In the request, `[`/`]` switch sections, `Enter` edits, `a` adds a row,
 `d` deletes one, and `←`/`→` change the body or auth kind. In the response,
 `[`/`]` switch views and `j`/`k`, `⌃D`/`⌃U`, `g`/`G` scroll. `Esc` stops

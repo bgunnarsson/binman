@@ -1,11 +1,12 @@
 //! The things that draw on top of the layout: the greeting, help, the pickers,
-//! the environment editor, and the prompts for where to save a request or a
-//! response.
+//! the environment editor, the prompts for where to save a request or a
+//! response, and the collection form.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use binman_core::Origin;
 use binman_core::history;
+use binman_core::workspace::{self, Collection, Scope};
+use binman_core::{Origin, Workspace};
 use tui_textarea::TextArea;
 
 use super::line::LineInput;
@@ -22,6 +23,8 @@ pub enum Overlay {
     SaveResponse(SavePrompt),
     /// The request as a curl command, to read or select.
     Curl(String),
+    /// Adding a collection, or changing one.
+    Collection(CollectionForm),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +41,9 @@ pub enum Command {
     Save,
     SaveAs,
     SaveResponse,
+    AddCollection,
+    EditCollection,
+    RemoveCollection,
     Reload,
     Help,
     Quit,
@@ -58,6 +64,9 @@ impl Command {
             Command::Save => "Save the request",
             Command::SaveAs => "Save the request to a file…",
             Command::SaveResponse => "Save the response…",
+            Command::AddCollection => "Add a collection…",
+            Command::EditCollection => "Edit this collection…",
+            Command::RemoveCollection => "Remove this collection",
             Command::Reload => "Reload the collections",
             Command::Help => "Help",
             Command::Quit => "Quit",
@@ -78,7 +87,12 @@ impl Command {
             Command::Reload => "F5",
             Command::Help => "F1",
             Command::Quit => "⌃Q",
-            Command::EditEnv | Command::SaveResponse => "",
+            // a, e and d are the tree's own keys, and do nothing anywhere else.
+            Command::EditEnv
+            | Command::SaveResponse
+            | Command::AddCollection
+            | Command::EditCollection
+            | Command::RemoveCollection => "",
         }
     }
 }
@@ -211,6 +225,171 @@ pub struct EnvEditor {
 pub struct SavePrompt {
     pub input: LineInput,
     pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FormField {
+    Path,
+    Name,
+    /// Which file it is saved in. Only offered when there is a project to
+    /// save in — with one file there is nothing to choose.
+    Scope,
+}
+
+impl FormField {
+    pub fn label(self) -> &'static str {
+        match self {
+            FormField::Path => "Path",
+            FormField::Name => "Name",
+            FormField::Scope => "Saved in",
+        }
+    }
+}
+
+/// Registering a collection, or changing one: binsql's connection form, for a
+/// location rather than a database.
+pub struct CollectionForm {
+    pub path: LineInput,
+    /// Left empty, the collection is named after what the path points at.
+    pub name: LineInput,
+    pub scope: Scope,
+    pub field: FormField,
+    /// The name it is saved under, when it is being edited.
+    pub editing: Option<String>,
+    /// The project file as it is worth showing, when there is one to save
+    /// in. `None` leaves Saved in out of the form.
+    project: Option<String>,
+    user: String,
+    pub error: Option<String>,
+}
+
+impl CollectionForm {
+    /// A new collection, starting at `here` — usually the repository whose
+    /// requests are about to be added — and saved, unless you say otherwise,
+    /// in the project being worked in.
+    pub fn new(workspace: &Workspace, here: &Path) -> CollectionForm {
+        CollectionForm::build(
+            workspace,
+            LineInput::new(workspace::tilde(here)),
+            LineInput::new(""),
+            workspace.default_scope(None),
+            None,
+        )
+    }
+
+    /// An existing collection, saved back where it came from unless Saved in
+    /// is changed — which moves it.
+    pub fn editing(workspace: &Workspace, collection: &Collection) -> CollectionForm {
+        CollectionForm::build(
+            workspace,
+            LineInput::new(workspace::tilde(&collection.path)),
+            LineInput::new(collection.name.clone()),
+            workspace.default_scope(Some(&collection.name)),
+            Some(collection.name.clone()),
+        )
+    }
+
+    fn build(
+        workspace: &Workspace,
+        path: LineInput,
+        name: LineInput,
+        scope: Scope,
+        editing: Option<String>,
+    ) -> CollectionForm {
+        // One to be written says so, since saving here is what creates it.
+        let project = workspace.project_path().map(|path| {
+            if workspace.project_exists() {
+                shown(path)
+            } else {
+                format!("{} (new)", shown(path))
+            }
+        });
+        CollectionForm {
+            path,
+            name,
+            scope,
+            field: FormField::Path,
+            editing,
+            project,
+            user: shown(workspace.user_path()),
+            error: None,
+        }
+    }
+
+    /// The fields the form shows, in order.
+    pub fn fields(&self) -> Vec<FormField> {
+        let mut fields = vec![FormField::Path, FormField::Name];
+        if self.project.is_some() {
+            fields.push(FormField::Scope);
+        }
+        fields
+    }
+
+    pub fn next_field(&mut self, delta: isize) {
+        let fields = self.fields();
+        let position = fields
+            .iter()
+            .position(|field| *field == self.field)
+            .unwrap_or(0) as isize;
+        self.field = fields[(position + delta).rem_euclid(fields.len() as isize) as usize];
+    }
+
+    pub fn toggle_scope(&mut self) {
+        if self.project.is_some() {
+            self.scope = match self.scope {
+                Scope::Project => Scope::User,
+                Scope::User => Scope::Project,
+            };
+        }
+    }
+
+    /// The text field in focus, when the focus is on one.
+    pub fn input(&mut self) -> Option<&mut LineInput> {
+        match self.field {
+            FormField::Path => Some(&mut self.path),
+            FormField::Name => Some(&mut self.name),
+            FormField::Scope => None,
+        }
+    }
+
+    /// The file it will be written to, named by its path: "project" and
+    /// "yours" mean nothing until you know which files they are, and this
+    /// form is where you find out.
+    pub fn scope_display(&self) -> String {
+        match self.scope {
+            Scope::Project => self.project.clone().unwrap_or_default(),
+            Scope::User => self.user.clone(),
+        }
+    }
+
+    /// The path as typed, taken as a shell would take it: `~` is your home,
+    /// and a relative path starts where binman was started.
+    pub fn typed_path(&self) -> PathBuf {
+        let here = std::env::current_dir().unwrap_or_default();
+        workspace::resolve(&here, self.path.text().trim())
+    }
+
+    /// What the collection will be called if Name is left empty.
+    pub fn placeholder(&self) -> String {
+        if self.path.text().trim().is_empty() {
+            return String::new();
+        }
+        workspace::name_for(&self.typed_path())
+    }
+}
+
+/// A file as it is worth showing: from where binman was started when it is
+/// under there, since `./.binman.json` says all an absolute path does, and
+/// from your home otherwise.
+pub fn shown(path: &Path) -> String {
+    let here = std::env::current_dir().ok();
+    match here
+        .as_deref()
+        .and_then(|here| path.strip_prefix(here).ok())
+    {
+        Some(rest) if !rest.as_os_str().is_empty() => format!("./{}", rest.display()),
+        _ => workspace::tilde(path),
+    }
 }
 
 #[cfg(test)]

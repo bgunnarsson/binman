@@ -42,6 +42,9 @@ COLLECTIONS
     .binman.json                        a project's: the nearest at or above
                                         where binman starts; commit it
 
+    In the sidebar, a adds a collection, and e and d edit and remove the one
+    selected. The form's Saved in moves one between the two files.
+
 CONFIG
     ~/.config/binman/config, or $XDG_CONFIG_HOME/binman/config:
 
