@@ -11,8 +11,8 @@ Each release carries builds for macOS, Linux and Windows on
 `checksums.txt`:
 
 ```sh
-tar -xzf binman-2.0.1-darwin-arm64.tar.gz
-sudo mv binman-2.0.1-darwin-arm64/binman /usr/local/bin/
+tar -xzf binman-2.0.2-darwin-arm64.tar.gz
+sudo mv binman-2.0.2-darwin-arm64/binman /usr/local/bin/
 ```
 
 On macOS or Linux, Homebrew installs the same builds:
